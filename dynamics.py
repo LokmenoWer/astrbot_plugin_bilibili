@@ -1,5 +1,4 @@
-from util.plugin_dev.api.v1.bot import Context, AstrMessageEvent, CommandResult
-from util.plugin_dev.api.v1.types import *
+from astrbot.api.all import *
 
 async def parse_last_dynamic(dyn: dict, data: dict):
     uid, last = data["uid"], data["last"]
