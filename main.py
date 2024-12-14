@@ -1,12 +1,12 @@
-from util.plugin_dev.api.v1.bot import Context, AstrMessageEvent, CommandResult
-from util.plugin_dev.api.v1.config import *
-from util.plugin_dev.api.v1.types import *
+from astrbot.api.all import *
 from aiocqhttp.event import Event
 from bilibili_api import user, Credential, settings, video
 from .dynamics import parse_last_dynamic
 import asyncio
 import logging
 import re
+import os
+import json
 
 DEFAULT_CFG = {
     "bili_sub_list": {} # sub_user -> [{"uid": "uid", "last": "last_dynamic_id"}]
@@ -46,15 +46,7 @@ class Main:
         # thread = threading.Thread(target=self.dynamic_listener).start()
         self.context.register_task(self.dynamic_listener(), "bilibili动态监听")
         
-    def check_platform(self, message: AstrMessageEvent):
-        if message.platform.platform_name in ['aiocqhttp', 'nakuru']:
-            return True
-        else:
-            logger.warn(f"不支持的平台 {message.platform.platform_name}")
-            return False
-        
     async def get_video_info(self, message: AstrMessageEvent, context: Context):
-        if not self.check_platform(message): return
         BV_PATTERN = r"(?:\?.*)?(?:https?:\/\/)?(?:www\.)?bilibili\.com\/video\/(BV[\w\d]+)\/?(?:\?.*)?"
         match_ = re.search(BV_PATTERN, message.message_str, re.IGNORECASE)
         if not match_:
@@ -72,14 +64,16 @@ UP主: {info['owner']['name']}
 总共 {online['total']} 人正在观看"""
         ls = [Plain(ret), Image.fromURL(info['pic'])]
         
-        return CommandResult(message_chain=ls, use_t2i=False)
+        result = CommandResult()
+        result.chain = ls
+        result.use_t2i(False)
+        return result
     
     async def save_cfg(self):
         with open(DATA_PATH, "w", encoding="utf-8") as f:
             f.write(json.dumps(self.data, ensure_ascii=False, indent=2))
     
     async def dynamic_sub(self, message: AstrMessageEvent, context: Context):
-        if not self.check_platform(message): return
         if not isinstance(message.message_obj.raw_message, Event): return # 非 aiocqhttp
         
         l = message.message_str.split(" ")
