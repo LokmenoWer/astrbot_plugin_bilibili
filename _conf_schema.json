@@ -1,0 +1,8 @@
+{
+    "sessdata": {
+        "description": "sessdata",
+        "type": "string",
+        "hint": "sessdata 获取请查看 readme",
+        "obvious_hint": true
+    }
+}
