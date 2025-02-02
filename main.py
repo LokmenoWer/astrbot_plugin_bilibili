@@ -1,6 +1,6 @@
 from astrbot.api.all import *
 from aiocqhttp.event import Event
-from bilibili_api import user, Credential, settings, video
+from bilibili_api import user, Credential, video
 from .dynamics import parse_last_dynamic
 import asyncio
 import logging
@@ -13,13 +13,11 @@ DEFAULT_CFG = {
 }
 DATA_PATH = "data/astrbot_plugin_bilibili.json"
 BV_PATTERN = r"(?:\?.*)?(?:https?:\/\/)?(?:www\.)?bilibili\.com\/video\/(BV[\w\d]+)\/?(?:\?.*)?"
-settings.timeout = 15
 
 logger = logging.getLogger("astrbot")
 
 class Main:
-    def __init__(self, context: Context) -> None:
-        # 仅支持 aiocqhttp
+    def __init__(self, context: Context, config: dict) -> None:
         NAMESPACE = "astrbot_plugin_bilibili"        
         self.context = context
         self.context.register_commands(NAMESPACE, BV_PATTERN, "解析 bilibili 视频BV号", 1, self.get_video_info, use_regex=True, ignore_prefix=True)
@@ -28,8 +26,7 @@ class Main:
         self.context.register_commands(NAMESPACE, "订阅列表", "查看 bilibili 动态监控列表", 1, self.dynamic_sub)
         self.context.register_commands(NAMESPACE, "订阅删除", "删除 bilibili 动态监控", 2, self.dynamic_sub)
         
-        put_config(NAMESPACE, "sessdata", "sessdata", "", "bilibili sessdata")
-        self.cfg = load_config(NAMESPACE)
+        self.cfg = config
         self.credential = None
         if not self.cfg["sessdata"]:
             logger.error("请设置 bilibili sessdata")
