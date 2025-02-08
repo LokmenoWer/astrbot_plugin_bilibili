@@ -71,47 +71,57 @@ UP主: {info['owner']['name']}
             f.write(json.dumps(self.data, ensure_ascii=False, indent=2))
     
     async def dynamic_sub(self, message: AstrMessageEvent, context: Context):
-        if not isinstance(message.message_obj.raw_message, Event): return # 非 aiocqhttp
-        
-        l = message.message_str.split(" ")
-        sub_user = message.unified_msg_origin
-        if l[0] == "订阅动态" and l[1].isdigit():
-            if sub_user:
-                if sub_user in self.data["bili_sub_list"]:
-                    self.data["bili_sub_list"][sub_user].append({
-                        "uid": int(l[1]),
-                        "last": ""
-                    })
+        try:
+            l = message.message_str.split(" ")
+            sub_user = message.unified_msg_origin
+
+            if len(l) < 2:
+                return CommandResult().message("参数数量不足。订阅动态 b站id")
+
+            if l[0] == "订阅动态" and l[1].isdigit():
+                if sub_user:
+                    if sub_user in self.data["bili_sub_list"]:
+                        self.data["bili_sub_list"][sub_user].append({
+                            "uid": int(l[1]),
+                            "last": ""
+                        })
+                    else:
+                        self.data["bili_sub_list"][sub_user] = [{
+                            "uid": int(l[1]),
+                            "last": ""
+                        }]
+                    await self.save_cfg()
+                    return CommandResult().message("添加成功")
                 else:
-                    self.data["bili_sub_list"][sub_user] = [{
-                        "uid": int(l[1]),
-                        "last": ""
-                    }]
-                await self.save_cfg()
-                return CommandResult().message("添加成功")
+                    return CommandResult().message("用户信息缺失")
+            elif l[0] == "订阅列表":
+                ret = """订阅列表：\n"""
+                if sub_user in self.data["bili_sub_list"]:
+                    for idx, uid_sub_data in enumerate(self.data["bili_sub_list"][sub_user]):
+                        ret += f"{idx+1}. {uid_sub_data['uid']}\n"
+                    return CommandResult().message(ret)
+                else:
+                    return CommandResult().message("无订阅")
+            elif l[0] == "订阅删除" and l[1].isdigit():
+                if sub_user in self.data["bili_sub_list"]:
+                    uid = int(l[1])
+                    for idx, uid_sub_data in enumerate(self.data["bili_sub_list"][sub_user]):
+                        if uid_sub_data['uid'] == uid:
+                            del self.data["bili_sub_list"][sub_user][idx]
+                            await self.save_cfg()
+                            return CommandResult().message("删除成功")
+                    return CommandResult().message("未找到指定的订阅")
+                else:
+                    return CommandResult().message("不存在")
             else:
-                return
-        elif l[0] == "订阅列表":
-            ret = """订阅列表：\n"""
-            if sub_user in self.data["bili_sub_list"]:
-                for idx, uid_sub_data in enumerate(self.data["bili_sub_list"][sub_user]):
-                    ret += f"{idx+1}. {uid_sub_data['uid']}\n"
-                return CommandResult().message(ret)
-            else:
-                return CommandResult().message("无订阅")
-        elif l[0] == "订阅删除":
-            if sub_user in self.data["bili_sub_list"]:
-                uid = int(l[1])
-                for idx, uid_sub_data in enumerate(self.data["bili_sub_list"][sub_user]):
-                    if uid_sub_data['uid'] == uid:
-                        del self.data["bili_sub_list"][sub_user][idx]
-                        await self.save_cfg()
-                        return CommandResult().message("删除成功")
-            else:
-                return CommandResult().message("不存在")
-        else:
-            return CommandResult().message("参数错误")
-        
+                return CommandResult().message("参数错误")
+        except IndexError:
+            return CommandResult().message("参数数量不足")
+        except ValueError:
+            return CommandResult().message("参数格式错误")
+        except Exception as e:
+            return CommandResult().message(f"发生错误: {e}")
+    
     async def dynamic_listener(self):
         while True:
             await asyncio.sleep(20*10)
@@ -123,14 +133,11 @@ UP主: {info['owner']['name']}
                     try:
                         usr = user.User(uid_sub_data['uid'], credential=self.credential)
                         dyn = await usr.get_dynamics_new()
-                        # dyn = asyncio.run_coroutine_threadsafe(usr.get_dynamics_new(), asyncio.get_event_loop()).result()
                         if dyn:
                             ret, dyn_id = await parse_last_dynamic(dyn, uid_sub_data)
-                            # ret = asyncio.run_coroutine_threadsafe(parse_last_dynamic(dyn, uid_sub_data), asyncio.get_event_loop()).result()
                             if not ret:
                                 continue
                             await self.context.send_message(sub_usr, ret)
-                            # asyncio.run_coroutine_threadsafe(self.context.send_message(sub_usr, ret), asyncio.get_event_loop())
                             self.data["bili_sub_list"][sub_usr][idx]["last"] = dyn_id
                     except Exception as e:
                         raise e
