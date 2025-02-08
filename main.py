@@ -1,6 +1,8 @@
 from astrbot.api.all import *
-from aiocqhttp.event import Event
-from bilibili_api import user, Credential, video
+from astrbot.api.event import CommandResult, AstrMessageEvent
+from bilibili_api import user, Credential, video, bangumi, sync
+from bilibili_api.bangumi import IndexFilter as IF
+from .constant import category_mapping
 from .dynamics import parse_last_dynamic
 import asyncio
 import logging
@@ -9,23 +11,51 @@ import os
 import json
 
 DEFAULT_CFG = {
-    "bili_sub_list": {} # sub_user -> [{"uid": "uid", "last": "last_dynamic_id"}]
+    "bili_sub_list": {}  # sub_user -> [{"uid": "uid", "last": "last_dynamic_id"}]
 }
 DATA_PATH = "data/astrbot_plugin_bilibili.json"
-BV_PATTERN = r"(?:\?.*)?(?:https?:\/\/)?(?:www\.)?bilibili\.com\/video\/(BV[\w\d]+)\/?(?:\?.*)?"
+BV_PATTERN = (
+    r"(?:\?.*)?(?:https?:\/\/)?(?:www\.)?bilibili\.com\/video\/(BV[\w\d]+)\/?(?:\?.*)?"
+)
+BV_PATTERN2 = "BV[\w\d]{10}"
 
 logger = logging.getLogger("astrbot")
 
-class Main:
-    def __init__(self, context: Context, config: dict) -> None:
-        NAMESPACE = "astrbot_plugin_bilibili"        
-        self.context = context
-        self.context.register_commands(NAMESPACE, BV_PATTERN, "解析 bilibili 视频BV号", 1, self.get_video_info, use_regex=True, ignore_prefix=True)
 
-        self.context.register_commands(NAMESPACE, "订阅动态", "添加 bilibili 动态监控", 2, self.dynamic_sub)
-        self.context.register_commands(NAMESPACE, "订阅列表", "查看 bilibili 动态监控列表", 1, self.dynamic_sub)
-        self.context.register_commands(NAMESPACE, "订阅删除", "删除 bilibili 动态监控", 2, self.dynamic_sub)
-        
+@register("astrbot_plugin_bilibili", "Soulter", "", "", "")
+class Main(Star):
+    def __init__(self, context: Context, config: dict) -> None:
+        NAMESPACE = "astrbot_plugin_bilibili"
+        self.context = context
+        self.context.register_commands(
+            NAMESPACE,
+            BV_PATTERN,
+            "解析 bilibili 视频BV号",
+            1,
+            self.get_video_info,
+            use_regex=True,
+            ignore_prefix=True,
+        )
+        self.context.register_commands(
+            NAMESPACE,
+            BV_PATTERN2,
+            "解析 bilibili 视频BV号",
+            1,
+            self.get_video_info,
+            use_regex=True,
+            ignore_prefix=True,
+        )
+
+        self.context.register_commands(
+            NAMESPACE, "订阅动态", "添加 bilibili 动态监控", 2, self.dynamic_sub
+        )
+        self.context.register_commands(
+            NAMESPACE, "订阅列表", "查看 bilibili 动态监控列表", 1, self.dynamic_sub
+        )
+        self.context.register_commands(
+            NAMESPACE, "订阅删除", "删除 bilibili 动态监控", 2, self.dynamic_sub
+        )
+
         self.cfg = config
         self.credential = None
         if not self.cfg["sessdata"]:
@@ -33,22 +63,24 @@ class Main:
         else:
             self.credential = Credential(self.cfg["sessdata"])
         self.context = context
-        
+
         if not os.path.exists(DATA_PATH):
             with open(DATA_PATH, "w", encoding="utf-8-sig") as f:
                 f.write(json.dumps(DEFAULT_CFG, ensure_ascii=False, indent=4))
         with open(DATA_PATH, "r", encoding="utf-8-sig") as f:
             self.data = json.load(f)
-        
-        # thread = threading.Thread(target=self.dynamic_listener).start()
+
         self.context.register_task(self.dynamic_listener(), "bilibili动态监听")
-        
+
     async def get_video_info(self, message: AstrMessageEvent, context: Context):
-        BV_PATTERN = r"(?:\?.*)?(?:https?:\/\/)?(?:www\.)?bilibili\.com\/video\/(BV[\w\d]+)\/?(?:\?.*)?"
-        match_ = re.search(BV_PATTERN, message.message_str, re.IGNORECASE)
-        if not match_:
-            return
-        bvid = 'BV' + match_.group(1)[2:]
+        if len(message.message_str) == 12:
+            bvid = message.message_str
+        else:
+            match_ = re.search(BV_PATTERN, message.message_str, re.IGNORECASE)
+            if not match_:
+                return
+            bvid = "BV" + match_.group(1)[2:]
+
         v = video.Video(bvid=bvid)
         info = await v.get_info()
         online = await v.get_online()
@@ -59,37 +91,35 @@ UP主: {info['owner']['name']}
 点赞: {info['stat']['like']}
 投币: {info['stat']['coin']}
 总共 {online['total']} 人正在观看"""
-        ls = [Plain(ret), Image.fromURL(info['pic'])]
-        
+        ls = [Plain(ret), Image.fromURL(info["pic"])]
+
         result = CommandResult()
         result.chain = ls
         result.use_t2i(False)
         return result
-    
+
     async def save_cfg(self):
         with open(DATA_PATH, "w", encoding="utf-8") as f:
             f.write(json.dumps(self.data, ensure_ascii=False, indent=2))
-    
+
     async def dynamic_sub(self, message: AstrMessageEvent, context: Context):
         try:
             l = message.message_str.split(" ")
             sub_user = message.unified_msg_origin
 
-            if len(l) < 2:
-                return CommandResult().message("参数数量不足。订阅动态 b站id")
-
             if l[0] == "订阅动态" and l[1].isdigit():
+                if len(l) < 2:
+                    return CommandResult().message("参数数量不足。订阅动态 b站id")
+
                 if sub_user:
                     if sub_user in self.data["bili_sub_list"]:
-                        self.data["bili_sub_list"][sub_user].append({
-                            "uid": int(l[1]),
-                            "last": ""
-                        })
+                        self.data["bili_sub_list"][sub_user].append(
+                            {"uid": int(l[1]), "last": ""}
+                        )
                     else:
-                        self.data["bili_sub_list"][sub_user] = [{
-                            "uid": int(l[1]),
-                            "last": ""
-                        }]
+                        self.data["bili_sub_list"][sub_user] = [
+                            {"uid": int(l[1]), "last": ""}
+                        ]
                     await self.save_cfg()
                     return CommandResult().message("添加成功")
                 else:
@@ -97,16 +127,24 @@ UP主: {info['owner']['name']}
             elif l[0] == "订阅列表":
                 ret = """订阅列表：\n"""
                 if sub_user in self.data["bili_sub_list"]:
-                    for idx, uid_sub_data in enumerate(self.data["bili_sub_list"][sub_user]):
+                    for idx, uid_sub_data in enumerate(
+                        self.data["bili_sub_list"][sub_user]
+                    ):
                         ret += f"{idx+1}. {uid_sub_data['uid']}\n"
                     return CommandResult().message(ret)
                 else:
                     return CommandResult().message("无订阅")
             elif l[0] == "订阅删除" and l[1].isdigit():
                 if sub_user in self.data["bili_sub_list"]:
+                    if len(l) < 2:
+                        return CommandResult().message("参数数量不足。订阅动态 b站id")
+
                     uid = int(l[1])
-                    for idx, uid_sub_data in enumerate(self.data["bili_sub_list"][sub_user]):
-                        if uid_sub_data['uid'] == uid:
+
+                    for idx, uid_sub_data in enumerate(
+                        self.data["bili_sub_list"][sub_user]
+                    ):
+                        if uid_sub_data["uid"] == uid:
                             del self.data["bili_sub_list"][sub_user][idx]
                             await self.save_cfg()
                             return CommandResult().message("删除成功")
@@ -121,17 +159,17 @@ UP主: {info['owner']['name']}
             return CommandResult().message("参数格式错误")
         except Exception as e:
             return CommandResult().message(f"发生错误: {e}")
-    
+
     async def dynamic_listener(self):
         while True:
-            await asyncio.sleep(20*10)
+            await asyncio.sleep(10)
             if self.credential is None:
-                logger.warn("bilibili sessdata 未设置，无法获取动态")
+                logger.warning("bilibili sessdata 未设置，无法获取动态")
                 continue
             for sub_usr in self.data["bili_sub_list"]:
                 for idx, uid_sub_data in enumerate(self.data["bili_sub_list"][sub_usr]):
                     try:
-                        usr = user.User(uid_sub_data['uid'], credential=self.credential)
+                        usr = user.User(uid_sub_data["uid"], credential=self.credential)
                         dyn = await usr.get_dynamics_new()
                         if dyn:
                             ret, dyn_id = await parse_last_dynamic(dyn, uid_sub_data)
@@ -139,6 +177,48 @@ UP主: {info['owner']['name']}
                                 continue
                             await self.context.send_message(sub_usr, ret)
                             self.data["bili_sub_list"][sub_usr][idx]["last"] = dyn_id
+                            await self.save_cfg()
                     except Exception as e:
                         raise e
-            
+
+    @llm_tool("get_bangumi")
+    async def get_bangumi(self, message: AstrMessageEvent, style: str = "ALL", season: str = "ALL", start_year: int = None, end_year: int = None):
+        """当用户希望推荐番剧时调用。根据用户的描述获取前 5 条推荐的动漫番剧。
+
+        Args:
+            style(string): 番剧的风格。默认为全部。可选值有：原创, 漫画改, 小说改, 游戏改, 特摄, 布袋戏, 热血, 穿越, 奇幻, 战斗, 搞笑, 日常, 科幻, 萌系, 治愈, 校园, 儿童, 泡面, 恋爱, 少女, 魔法, 冒险, 历史, 架空, 机战, 神魔, 声控, 运动, 励志, 音乐, 推理, 社团, 智斗, 催泪, 美食, 偶像, 乙女, 职场
+            season(string): 番剧的季度。默认为全部。可选值有：WINTER, SPRING, SUMMER, AUTUMN。其也分别代表一月番、四月番、七月番、十月番
+            start_year(number): 起始年份。默认为空，即不限制年份。
+            end_year(number): 结束年份。默认为空，即不限制年份。
+        """
+        
+        if style in category_mapping:
+            style = getattr(IF.Style.Anime, category_mapping[style], IF.Style.Anime.ALL)
+        else:
+            style = IF.Style.Anime.ALL
+        
+        if season in ["WINTER", "SPRING", "SUMMER", "AUTUMN"]:
+            season = getattr(IF.Season, season, IF.Season.ALL)
+        else:
+            season = IF.Season.ALL
+        
+        filters = bangumi.IndexFilterMeta.Anime(
+            area=IF.Area.JAPAN,
+            year=IF.make_time_filter(start=start_year, end=end_year, include_end=True),
+            season=season,
+            style=style,
+        )
+        index = await bangumi.get_index_info(
+            filters=filters, order=IF.Order.SCORE, sort=IF.Sort.DESC, pn=1, ps=5
+        )
+        
+        result = "推荐的番剧:\n"
+        for item in index['list']:
+            result += f"标题: {item['title']}\n"
+            result += f"副标题: {item['subTitle']}\n"
+            result += f"评分: {item['score']}\n"
+            result += f"集数: {item['index_show']}\n"
+            result += f"链接: {item['link']}\n"
+            result += "\n"
+        result += "请分点，贴心地回答。不要输出 markdown 格式。"
+        return result
