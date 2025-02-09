@@ -71,7 +71,7 @@ UP主: {info['owner']['name']}
     async def save_cfg(self):
         with open(DATA_PATH, "w", encoding="utf-8") as f:
             f.write(json.dumps(self.data, ensure_ascii=False, indent=2))
-    
+        
     @command("订阅动态")
     async def dynamic_sub(self, message: AstrMessageEvent, uid: str):
         '''添加 bilibili 动态监控'''
@@ -79,6 +79,9 @@ UP主: {info['owner']['name']}
         if uid.isdigit():
             if sub_user:
                 if sub_user in self.data["bili_sub_list"]:
+                    # 检查是否已经存在该订阅
+                    if any(sub["uid"] == int(uid) for sub in self.data["bili_sub_list"][sub_user]):
+                        return CommandResult().message("该动态已订阅")
                     self.data["bili_sub_list"][sub_user].append(
                         {"uid": int(uid), "last": ""}
                     )
@@ -90,6 +93,8 @@ UP主: {info['owner']['name']}
                 return CommandResult().message("添加成功")
             else:
                 return CommandResult().message("用户信息缺失")
+        else:
+            return CommandResult().message("UID 格式错误")
         
     @command("订阅列表")
     async def sub_list(self, message: AstrMessageEvent):
