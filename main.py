@@ -1,6 +1,8 @@
 from astrbot.api.all import *
 from astrbot.api.event import CommandResult, AstrMessageEvent
-from bilibili_api import user, Credential, video, bangumi, sync
+from bilibili_api import user, Credential, video, bangumi
+from astrbot.api.message_components import Image, Plain
+from astrbot.api.event.filter import command, regex, llm_tool
 from bilibili_api.bangumi import IndexFilter as IF
 from .constant import category_mapping
 from .dynamics import parse_last_dynamic
@@ -14,48 +16,15 @@ DEFAULT_CFG = {
     "bili_sub_list": {}  # sub_user -> [{"uid": "uid", "last": "last_dynamic_id"}]
 }
 DATA_PATH = "data/astrbot_plugin_bilibili.json"
-BV_PATTERN = (
-    r"(?:\?.*)?(?:https?:\/\/)?(?:www\.)?bilibili\.com\/video\/(BV[\w\d]+)\/?(?:\?.*)?"
-)
-BV_PATTERN2 = "BV[\w\d]{10}"
-
+BV = r"(?:\?.*)?(?:https?:\/\/)?(?:www\.)?bilibili\.com\/video\/(BV[\w\d]+)\/?(?:\?.*)?"
 logger = logging.getLogger("astrbot")
 
 
 @register("astrbot_plugin_bilibili", "Soulter", "", "", "")
 class Main(Star):
     def __init__(self, context: Context, config: dict) -> None:
-        NAMESPACE = "astrbot_plugin_bilibili"
-        self.context = context
-        self.context.register_commands(
-            NAMESPACE,
-            BV_PATTERN,
-            "解析 bilibili 视频BV号",
-            1,
-            self.get_video_info,
-            use_regex=True,
-            ignore_prefix=True,
-        )
-        self.context.register_commands(
-            NAMESPACE,
-            BV_PATTERN2,
-            "解析 bilibili 视频BV号",
-            1,
-            self.get_video_info,
-            use_regex=True,
-            ignore_prefix=True,
-        )
-
-        self.context.register_commands(
-            NAMESPACE, "订阅动态", "添加 bilibili 动态监控", 2, self.dynamic_sub
-        )
-        self.context.register_commands(
-            NAMESPACE, "订阅列表", "查看 bilibili 动态监控列表", 1, self.dynamic_sub
-        )
-        self.context.register_commands(
-            NAMESPACE, "订阅删除", "删除 bilibili 动态监控", 2, self.dynamic_sub
-        )
-
+        super().__init__(context)
+        
         self.cfg = config
         self.credential = None
         if not self.cfg["sessdata"]:
@@ -72,11 +41,12 @@ class Main(Star):
 
         self.context.register_task(self.dynamic_listener(), "bilibili动态监听")
 
-    async def get_video_info(self, message: AstrMessageEvent, context: Context):
+    @regex(BV)
+    async def get_video_info(self, message: AstrMessageEvent):
         if len(message.message_str) == 12:
             bvid = message.message_str
         else:
-            match_ = re.search(BV_PATTERN, message.message_str, re.IGNORECASE)
+            match_ = re.search(BV, message.message_str, re.IGNORECASE)
             if not match_:
                 return
             bvid = "BV" + match_.group(1)[2:]
@@ -101,68 +71,64 @@ UP主: {info['owner']['name']}
     async def save_cfg(self):
         with open(DATA_PATH, "w", encoding="utf-8") as f:
             f.write(json.dumps(self.data, ensure_ascii=False, indent=2))
-
-    async def dynamic_sub(self, message: AstrMessageEvent, context: Context):
-        try:
-            l = message.message_str.split(" ")
-            sub_user = message.unified_msg_origin
-
-            if l[0] == "订阅动态" and l[1].isdigit():
-                if len(l) < 2:
-                    return CommandResult().message("参数数量不足。订阅动态 b站id")
-
-                if sub_user:
-                    if sub_user in self.data["bili_sub_list"]:
-                        self.data["bili_sub_list"][sub_user].append(
-                            {"uid": int(l[1]), "last": ""}
-                        )
-                    else:
-                        self.data["bili_sub_list"][sub_user] = [
-                            {"uid": int(l[1]), "last": ""}
-                        ]
-                    await self.save_cfg()
-                    return CommandResult().message("添加成功")
-                else:
-                    return CommandResult().message("用户信息缺失")
-            elif l[0] == "订阅列表":
-                ret = """订阅列表：\n"""
+    
+    @command("订阅动态")
+    async def dynamic_sub(self, message: AstrMessageEvent, uid: str):
+        '''添加 bilibili 动态监控'''
+        sub_user = message.unified_msg_origin
+        if uid.isdigit():
+            if sub_user:
                 if sub_user in self.data["bili_sub_list"]:
-                    for idx, uid_sub_data in enumerate(
-                        self.data["bili_sub_list"][sub_user]
-                    ):
-                        ret += f"{idx+1}. {uid_sub_data['uid']}\n"
-                    return CommandResult().message(ret)
+                    self.data["bili_sub_list"][sub_user].append(
+                        {"uid": int(uid), "last": ""}
+                    )
                 else:
-                    return CommandResult().message("无订阅")
-            elif l[0] == "订阅删除" and l[1].isdigit():
-                if sub_user in self.data["bili_sub_list"]:
-                    if len(l) < 2:
-                        return CommandResult().message("参数数量不足。订阅动态 b站id")
-
-                    uid = int(l[1])
-
-                    for idx, uid_sub_data in enumerate(
-                        self.data["bili_sub_list"][sub_user]
-                    ):
-                        if uid_sub_data["uid"] == uid:
-                            del self.data["bili_sub_list"][sub_user][idx]
-                            await self.save_cfg()
-                            return CommandResult().message("删除成功")
-                    return CommandResult().message("未找到指定的订阅")
-                else:
-                    return CommandResult().message("不存在")
+                    self.data["bili_sub_list"][sub_user] = [
+                        {"uid": int(uid), "last": ""}
+                    ]
+                await self.save_cfg()
+                return CommandResult().message("添加成功")
             else:
-                return CommandResult().message("参数错误")
-        except IndexError:
-            return CommandResult().message("参数数量不足")
-        except ValueError:
-            return CommandResult().message("参数格式错误")
-        except Exception as e:
-            return CommandResult().message(f"发生错误: {e}")
+                return CommandResult().message("用户信息缺失")
+        
+    @command("订阅列表")
+    async def sub_list(self, message: AstrMessageEvent):
+        '''查看 bilibili 动态监控列表'''
+        sub_user = message.unified_msg_origin
+        ret = """订阅列表：\n"""
+        if sub_user in self.data["bili_sub_list"]:
+            for idx, uid_sub_data in enumerate(
+                self.data["bili_sub_list"][sub_user]
+            ):
+                ret += f"{idx+1}. {uid_sub_data['uid']}\n"
+            return CommandResult().message(ret)
+        else:
+            return CommandResult().message("无订阅")
+        
+    @command("订阅删除")
+    async def sub_del(self, message: AstrMessageEvent, uid: str):
+        '''删除 bilibili 动态监控'''
+        sub_user = message.unified_msg_origin
+        if sub_user in self.data["bili_sub_list"]:
+            if len(uid) < 1:
+                return CommandResult().message("参数数量不足。订阅动态 b站id")
 
+            uid = int(uid)
+
+            for idx, uid_sub_data in enumerate(
+                self.data["bili_sub_list"][sub_user]
+            ):
+                if uid_sub_data["uid"] == uid:
+                    del self.data["bili_sub_list"][sub_user][idx]
+                    await self.save_cfg()
+                    return CommandResult().message("删除成功")
+            return CommandResult().message("未找到指定的订阅")
+        else:
+            return CommandResult().message("不存在")
+    
     async def dynamic_listener(self):
         while True:
-            await asyncio.sleep(10*60)
+            await asyncio.sleep(60*20)
             if self.credential is None:
                 logger.warning("bilibili sessdata 未设置，无法获取动态")
                 continue
