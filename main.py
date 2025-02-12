@@ -212,7 +212,7 @@ UP主: {info['owner']['name']}
     
     async def dynamic_listener(self):
         while True:
-            await asyncio.sleep(5*self.interval_mins)
+            await asyncio.sleep(60*self.interval_mins)
             if self.credential is None:
                 logger.warning("bilibili sessdata 未设置，无法获取动态")
                 continue
