@@ -10,6 +10,6 @@
         "type": "int",
         "hint": "订阅检查间隔时间，分钟数",
         "obvious_hint": true,
-        "default": 20
+        "default": 5
     }
 }
