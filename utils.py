@@ -1,6 +1,5 @@
 from astrbot.api.all import *
 
-
 async def parse_last_dynamic(dyn: dict, data: dict):
     uid, last = data["uid"], data["last"]
     items = dyn["items"]
@@ -31,16 +30,24 @@ async def parse_last_dynamic(dyn: dict, data: dict):
             title = archive["title"]
             bv = archive["bvid"]
             cover_url = archive["cover"]
+                            
+            plain = (
+                f"📣 UP 主 「{name}」 投稿了新视频:\n"
+                f"标题: {title}\n"
+                f"链接: https://www.bilibili.com/video/{bv}\n"
+            )
+                
             return CommandResult(
                 chain=[
-                    Plain(f"你订阅的UP {name} 投稿了新视频：\n{title}\n{bv}"),
+                    Plain(plain),
                     Image.fromURL(cover_url),
                 ],
             ).use_t2i(False), dyn_id
 
         # 图文
         elif item["type"] == "DYNAMIC_TYPE_DRAW" or item["type"] == "DYNAMIC_TYPE_WORD":
-            ls = [Plain(f"你订阅的UP {name} 发布了新图文动态：\n")]
+
+            ls = [Plain(f"📣 UP 主 「{name}」 发布了新图文动态:\n")]
             opus = item["modules"]["module_dynamic"]["major"]["opus"]
             summary = opus["summary"]["text"]
             ls.append(Plain(summary))

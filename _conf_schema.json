@@ -4,5 +4,12 @@
         "type": "string",
         "hint": "sessdata 获取请查看 readme",
         "obvious_hint": true
+    },
+    "interval_mins": {
+        "description": "interval_mins",
+        "type": "int",
+        "hint": "订阅检查间隔时间，分钟数",
+        "obvious_hint": true,
+        "default": 20
     }
 }

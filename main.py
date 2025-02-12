@@ -5,7 +5,7 @@ from astrbot.api.message_components import Image, Plain
 from astrbot.api.event.filter import command, regex, llm_tool
 from bilibili_api.bangumi import IndexFilter as IF
 from .constant import category_mapping
-from .dynamics import parse_last_dynamic
+from .utils import parse_last_dynamic
 import asyncio
 import logging
 import re
@@ -16,7 +16,7 @@ DEFAULT_CFG = {
     "bili_sub_list": {}  # sub_user -> [{"uid": "uid", "last": "last_dynamic_id"}]
 }
 DATA_PATH = "data/astrbot_plugin_bilibili.json"
-BV = r"(?:\?.*)?(?:https?:\/\/)?(?:www\.)?bilibili\.com\/video\/(BV[\w\d]+)\/?(?:\?.*)?"
+BV = r"(?:\?.*)?(?:https?:\/\/)?(?:www\.)?bilibili\.com\/video\/(BV[\w\d]+)\/?(?:\?.*)?|BV[\w\d]+"
 logger = logging.getLogger("astrbot")
 
 
@@ -28,9 +28,11 @@ class Main(Star):
         self.cfg = config
         self.credential = None
         if not self.cfg["sessdata"]:
-            logger.error("请设置 bilibili sessdata")
+            logger.error("bilibili 插件检测到没有设置 sessdata，请设置 bilibili sessdata。")
         else:
             self.credential = Credential(self.cfg["sessdata"])
+        self.interval_mins = float(self.cfg.get("interval_mins", 20)) 
+        
         self.context = context
 
         if not os.path.exists(DATA_PATH):
@@ -76,25 +78,60 @@ UP主: {info['owner']['name']}
     async def dynamic_sub(self, message: AstrMessageEvent, uid: str):
         '''添加 bilibili 动态监控'''
         sub_user = message.unified_msg_origin
-        if uid.isdigit():
-            if sub_user:
-                if sub_user in self.data["bili_sub_list"]:
-                    # 检查是否已经存在该订阅
-                    if any(sub["uid"] == int(uid) for sub in self.data["bili_sub_list"][sub_user]):
-                        return CommandResult().message("该动态已订阅")
-                    self.data["bili_sub_list"][sub_user].append(
-                        {"uid": int(uid), "last": ""}
-                    )
-                else:
-                    self.data["bili_sub_list"][sub_user] = [
-                        {"uid": int(uid), "last": ""}
-                    ]
-                await self.save_cfg()
-                return CommandResult().message("添加成功")
-            else:
-                return CommandResult().message("用户信息缺失")
-        else:
+        if not uid.isdigit():
             return CommandResult().message("UID 格式错误")
+        
+        # 检查是否已经存在该订阅
+        if any(sub["uid"] == int(uid) for sub in self.data["bili_sub_list"][sub_user]):
+            return CommandResult().message("该动态已订阅")
+        
+        usr = user.User(int(uid), credential=self.credential)
+        
+        try:
+            usr_info = await usr.get_user_info()
+        except Exception as e:
+            if "code" in e.args[0] and e.args[0]["code"] == -404:
+                return CommandResult().message("啥都木有 (´;ω;`)")
+            
+        name = usr_info["name"]
+        sex = usr_info["sex"]
+        avatar = usr_info["face"]
+        sign = usr_info["sign"]
+        title = usr_info["official"]["title"]
+        
+        # 获取最新一条动态
+        dyn_id = ""
+        try:
+            dyn = await usr.get_dynamics_new()
+            _sub_data = {"uid": int(uid), "last": "", "is_live": False}
+            _, dyn_id = await parse_last_dynamic(dyn, _sub_data)
+        except Exception as e:
+            logger.error(f"获取 {name} 动态失败: {e}")
+        
+        # 保存配置
+        if sub_user in self.data["bili_sub_list"]:
+            self.data["bili_sub_list"][sub_user].append(
+                {"uid": int(uid), "last": dyn_id, "is_live": False}
+            )
+        else:
+            self.data["bili_sub_list"][sub_user] = [
+                {"uid": int(uid), "last": "", "is_live": False}
+            ]
+        await self.save_cfg()
+        
+        plain = (
+            f"📣 订阅成功！\n"
+            f"UP 主: {name} | {sex}\n"
+            f"签名: {sign}\n"
+            f"头衔: {title}\n"
+        )
+        
+        chain = [
+            Plain(plain),
+            Image.fromURL(avatar),
+        ]
+        
+        return CommandResult(chain=chain, use_t2i_=False)
         
     @command("订阅列表")
     async def sub_list(self, message: AstrMessageEvent):
@@ -131,27 +168,6 @@ UP主: {info['owner']['name']}
         else:
             return CommandResult().message("不存在")
     
-    async def dynamic_listener(self):
-        while True:
-            await asyncio.sleep(60*20)
-            if self.credential is None:
-                logger.warning("bilibili sessdata 未设置，无法获取动态")
-                continue
-            for sub_usr in self.data["bili_sub_list"]:
-                for idx, uid_sub_data in enumerate(self.data["bili_sub_list"][sub_usr]):
-                    try:
-                        usr = user.User(uid_sub_data["uid"], credential=self.credential)
-                        dyn = await usr.get_dynamics_new()
-                        if dyn:
-                            ret, dyn_id = await parse_last_dynamic(dyn, uid_sub_data)
-                            if not ret:
-                                continue
-                            await self.context.send_message(sub_usr, ret)
-                            self.data["bili_sub_list"][sub_usr][idx]["last"] = dyn_id
-                            await self.save_cfg()
-                    except Exception as e:
-                        raise e
-
     @llm_tool("get_bangumi")
     async def get_bangumi(self, message: AstrMessageEvent, style: str = "ALL", season: str = "ALL", start_year: int = None, end_year: int = None):
         """当用户希望推荐番剧时调用。根据用户的描述获取前 5 条推荐的动漫番剧。
@@ -193,3 +209,68 @@ UP主: {info['owner']['name']}
             result += "\n"
         result += "请分点，贴心地回答。不要输出 markdown 格式。"
         return result
+    
+    async def dynamic_listener(self):
+        while True:
+            await asyncio.sleep(5*self.interval_mins)
+            if self.credential is None:
+                logger.warning("bilibili sessdata 未设置，无法获取动态")
+                continue
+            for sub_usr in self.data["bili_sub_list"]:
+                # 遍历所有订阅的用户
+                for idx, uid_sub_data in enumerate(self.data["bili_sub_list"][sub_usr]):
+                    # 遍历用户订阅的UP
+                    try:
+                        usr = user.User(uid_sub_data["uid"], credential=self.credential)
+                        dyn = await usr.get_dynamics_new()
+                        lives = await usr.get_live_info()
+                        if dyn is not None:
+                            # 获取最新一条动态
+                            ret, dyn_id = await parse_last_dynamic(dyn, uid_sub_data)
+                            if ret:
+                                await self.context.send_message(sub_usr, ret)
+                                self.data["bili_sub_list"][sub_usr][idx]["last"] = dyn_id
+                                await self.save_cfg()
+                        if lives is not None:
+                            # 获取直播间情况
+                            is_live = self.data["bili_sub_list"][sub_usr][idx].get("is_live", False)
+                            live_name = lives['live_room']['title']
+                            user_name = lives['name']
+                            cover_url  = lives['live_room']['cover']
+                            link = lives['live_room']['url']
+                            plain = None
+                            
+                            if lives['live_room']['liveStatus'] and not is_live:
+                                # 开播
+                                plain = (
+                                    f"📣 UP 「{user_name}」 开播了！\n"
+                                    f"标题: {live_name}\n"
+                                    f"链接: {link}"
+                                )
+                                
+                                self.data["bili_sub_list"][sub_usr][idx]["is_live"] = True
+                                await self.save_cfg()
+                            
+                            if not lives['live_room']['liveStatus'] and is_live:
+                                # 下播
+                                plain = (
+                                    f"📣 你订阅的UP {user_name} 下播了！\n"
+                                    f"标题: {live_name}\n"
+                                    f"链接: {link}"
+                                )
+                                
+                                self.data["bili_sub_list"][sub_usr][idx]["is_live"] = False
+                                await self.save_cfg()
+                            
+                            if plain:
+                                ret = CommandResult(
+                                    chain=[
+                                        Plain(plain),
+                                        Image.fromURL(cover_url),
+                                    ],
+                                ).use_t2i(False)
+                                    
+                                await self.context.send_message(sub_usr, ret)
+                            
+                    except Exception as e:
+                        raise e
