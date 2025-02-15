@@ -2,7 +2,7 @@ from astrbot.api.all import Star, Context, register
 from astrbot.api.event import CommandResult, AstrMessageEvent
 from bilibili_api import user, Credential, video, bangumi
 from astrbot.api.message_components import Image, Plain
-from astrbot.api.event.filter import command, regex, llm_tool
+from astrbot.api.event.filter import command, regex, llm_tool, permission_type, PermissionType
 from bilibili_api.bangumi import IndexFilter as IF
 from .constant import category_mapping
 from .utils import parse_last_dynamic
@@ -81,8 +81,6 @@ UP主: {info['owner']['name']}
         if not uid.isdigit():
             return CommandResult().message("UID 格式错误")
         
-        
-        
         # 检查是否已经存在该订阅
         if sub_user in self.data['bili_sub_list'] and any(sub["uid"] == int(uid) for sub in self.data["bili_sub_list"][sub_user]):
             return CommandResult().message("该动态已订阅")
@@ -122,7 +120,7 @@ UP主: {info['owner']['name']}
         await self.save_cfg()
         
         plain = (
-            f"📣 订阅成功！\n"
+            f"📣 订阅动态、直播信息成功！\n"
             f"UP 主: {name} | {sex}\n"
             f"签名: {sign}\n"
             f"头衔: {title}\n"
@@ -276,3 +274,40 @@ UP主: {info['owner']['name']}
                             
                     except Exception as e:
                         raise e
+
+    @permission_type(PermissionType.ADMIN)
+    @command("全局删除")
+    async def global_sub(self, message: AstrMessageEvent, sid: str = None):
+        '''管理员指令。通过 SID 删除某一个群聊或者私聊的所有订阅。使用 /sid 查看当前会话的 SID。'''
+        if not sid:
+            return CommandResult().message("通过 SID 删除某一个群聊或者私聊的所有订阅。使用 /sid 指令查看当前会话的 SID。")
+        
+        candidate = []
+        for sub_user in self.data["bili_sub_list"]:
+            third = sub_user.split(":")[2]
+            if third == str(sid) or sid == sub_user:
+                candidate.append(sub_user)
+
+        if not candidate:
+            return CommandResult().message("未找到订阅")
+        
+        if len(candidate) == 1:
+            self.data["bili_sub_list"].pop(candidate[0])
+            await self.save_cfg()
+            return CommandResult().message(f"删除 {sid} 订阅成功")
+        
+        return CommandResult().message("找到多个订阅者: " + ", ".join(candidate))
+        
+    @permission_type(PermissionType.ADMIN)
+    @command("全局列表")
+    async def global_list(self, message: AstrMessageEvent):
+        '''管理员指令。查看所有订阅者'''
+        ret = "订阅会话列表：\n"
+        
+        if not self.data["bili_sub_list"]:
+            return CommandResult().message("没有任何会话订阅过。")
+        
+        for sub_user in self.data["bili_sub_list"]:
+            ret += f"- {sub_user}\n"
+        return CommandResult().message(ret)
+    
