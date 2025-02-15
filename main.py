@@ -1,3 +1,9 @@
+import asyncio
+import logging
+import re
+import os
+import json
+import traceback
 from astrbot.api.all import Star, Context, register
 from astrbot.api.event import CommandResult, AstrMessageEvent
 from bilibili_api import user, Credential, video, bangumi
@@ -6,11 +12,7 @@ from astrbot.api.event.filter import command, regex, llm_tool, permission_type, 
 from bilibili_api.bangumi import IndexFilter as IF
 from .constant import category_mapping
 from .utils import parse_last_dynamic
-import asyncio
-import logging
-import re
-import os
-import json
+
 
 DEFAULT_CFG = {
     "bili_sub_list": {}  # sub_user -> [{"uid": "uid", "last": "last_dynamic_id"}]
@@ -92,6 +94,9 @@ UP主: {info['owner']['name']}
         except Exception as e:
             if "code" in e.args[0] and e.args[0]["code"] == -404:
                 return CommandResult().message("啥都木有 (´;ω;`)")
+            else:
+                logger.error(traceback.format_exc())
+                return CommandResult().message(f"获取 UP 主信息失败: {str(e)}")
             
         name = usr_info["name"]
         sex = usr_info["sex"]
