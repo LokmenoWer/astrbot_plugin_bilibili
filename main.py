@@ -1,4 +1,4 @@
-from astrbot.api.all import *
+from astrbot.api.all import Star, Context, register
 from astrbot.api.event import CommandResult, AstrMessageEvent
 from bilibili_api import user, Credential, video, bangumi
 from astrbot.api.message_components import Image, Plain
@@ -81,8 +81,10 @@ UP主: {info['owner']['name']}
         if not uid.isdigit():
             return CommandResult().message("UID 格式错误")
         
+        
+        
         # 检查是否已经存在该订阅
-        if any(sub["uid"] == int(uid) for sub in self.data["bili_sub_list"][sub_user]):
+        if sub_user in self.data['bili_sub_list'] and any(sub["uid"] == int(uid) for sub in self.data["bili_sub_list"][sub_user]):
             return CommandResult().message("该动态已订阅")
         
         usr = user.User(int(uid), credential=self.credential)
@@ -166,7 +168,7 @@ UP主: {info['owner']['name']}
                     return CommandResult().message("删除成功")
             return CommandResult().message("未找到指定的订阅")
         else:
-            return CommandResult().message("不存在")
+            return CommandResult().message("您还没有订阅哦！")
     
     @llm_tool("get_bangumi")
     async def get_bangumi(self, message: AstrMessageEvent, style: str = "ALL", season: str = "ALL", start_year: int = None, end_year: int = None):
