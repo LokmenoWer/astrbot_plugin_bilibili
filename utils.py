@@ -56,3 +56,4 @@ async def parse_last_dynamic(dyn: dict, data: dict):
                     ls.append(Image.fromURL(pic["url"]))
 
             return CommandResult(chain=ls).use_t2i(False), dyn_id
+    return None, None
