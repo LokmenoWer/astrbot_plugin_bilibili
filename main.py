@@ -239,13 +239,14 @@ UP主: {info['owner']['name']}
                         if lives is not None:
                             # 获取直播间情况
                             is_live = self.data["bili_sub_list"][sub_usr][idx].get("is_live", False)
-                            live_name = lives.get("live_room", {}).get("title", "Unknown")
+                            live_room = lives.get("live_room", {}) or lives.get("live_room:", {}) or {}
+                            live_name = live_room.get("title", "Unknown")
                             user_name = lives['name']
-                            cover_url  = lives.get("live_room", {}).get("cover", "")
-                            link = lives.get("live_room", {}).get("url", "Unknown")
+                            cover_url  = live_room.get("cover", "")
+                            link = live_room.get("url", "Unknown")
                             plain = None
                             
-                            if lives.get("live_room", {}).get("liveStatus", "") and not is_live:
+                            if live_room.get("liveStatus", "") and not is_live:
                                 # 开播
                                 plain = (
                                     f"📣 UP 「{user_name}」 开播了！\n"
@@ -256,7 +257,7 @@ UP主: {info['owner']['name']}
                                 self.data["bili_sub_list"][sub_usr][idx]["is_live"] = True
                                 await self.save_cfg()
                             
-                            if not lives.get("live_room", {}).get("liveStatus", "") and is_live:
+                            if not live_room.get("liveStatus", "") and is_live:
                                 # 下播
                                 plain = (
                                     f"📣 你订阅的UP {user_name} 下播了！\n"
