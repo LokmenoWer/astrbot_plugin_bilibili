@@ -1,0 +1,22 @@
+{
+    "sessdata": {
+        "description": "sessdata",
+        "type": "string",
+        "hint": "sessdata 获取请查看 readme",
+        "obvious_hint": true
+    },
+    "interval_mins": {
+        "description": "interval_mins",
+        "type": "int",
+        "hint": "订阅检查间隔时间，分钟数",
+        "obvious_hint": true,
+        "default": 5
+    },
+    "rai": {
+        "description": "render_as_image",
+        "type": "bool",
+        "hint": "是否以图片形式渲染输出",
+        "default": true,
+        "invisible": true
+    }
+}
