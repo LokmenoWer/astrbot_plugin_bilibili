@@ -298,6 +298,8 @@ class Main(Star):
                             link = live_room.get("url", "Unknown")
 
                             render_data = await create_render_data()
+                            render_data["name"] = "AstrBot"
+                            render_data["avatar"] = await image_to_base64(logo_path)
 
                             if live_room.get("liveStatus", "") and not is_live:
                                 render_data["text"] = (
