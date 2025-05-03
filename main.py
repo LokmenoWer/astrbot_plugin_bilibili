@@ -63,6 +63,29 @@ class Main(Star):
 
     @regex(BV)
     async def get_video_info(self, message: AstrMessageEvent):
+        if len(message.message_str) == 12:
+            bvid = message.message_str
+        else:
+            match_ = re.search(BV, message.message_str, re.IGNORECASE)
+            if not match_:
+                return
+            bvid = "BV" + match_.group(1)[2:]
+
+        v = video.Video(bvid=bvid)
+        info = await v.get_info()
+        online = await v.get_online()
+        ret = f"""Billibili 视频信息：
+标题: {info['title']}
+UP主: {info['owner']['name']}
+播放量: {info['stat']['view']}
+点赞: {info['stat']['like']}
+投币: {info['stat']['coin']}
+总共 {online['total']} 人正在观看"""
+        ls = [Plain(ret), Image.fromURL(info["pic"])]
+
+        result = CommandResult()
+        result.chain = ls
+        result.use_t2i(False)
         return result
 
     async def save_cfg(self):
