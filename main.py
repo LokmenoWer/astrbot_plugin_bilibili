@@ -300,11 +300,11 @@ class Main(Star):
                             render_data = await create_render_data()
                             render_data["name"] = "AstrBot"
                             render_data["avatar"] = await image_to_base64(logo_path)
+                            render_data["title"] = live_name
 
                             if live_room.get("liveStatus", "") and not is_live:
                                 render_data["text"] = (
-                                    f"📣 你订阅的UP 「{user_name}」 开播了！<br>"
-                                    f"标题: {live_name} <br>"
+                                    f"📣 你订阅的UP 「{user_name}」 开播了！"
                                 )
                                 render_data["url"] = link
                                 render_data["image_urls"] = [cover_url]
@@ -314,8 +314,7 @@ class Main(Star):
                                 await self.save_cfg()
                             if not live_room.get("liveStatus", "") and is_live:
                                 render_data["text"] = (
-                                    f"📣 你订阅的UP 「{user_name}」 下播了！<br>"
-                                    f"标题: {live_name} <br>"
+                                    f"📣 你订阅的UP 「{user_name}」 下播了！"
                                 )
                                 render_data["url"] = link
                                 render_data["image_urls"] = [cover_url]
@@ -413,7 +412,7 @@ class Main(Star):
             render_data["pendant"] = item["modules"]["module_author"]["pendant"][
                 "image"
             ]
-
+            # 转发类型
             if item["type"] == "DYNAMIC_TYPE_FORWARD":
                 if "forward" in filter_types:
                     logger.info(f"转发类型在过滤列表 {filter_types} 中。")
@@ -439,10 +438,10 @@ class Main(Star):
                         item["modules"]["module_dynamic"]["desc"],
                         item["modules"]["module_dynamic"]["topic"],
                     )
-                    render_data["text"] = f"投稿了新视频: {title}<br>{text}"
+                    render_data["text"] = f"投稿了新视频<br>{text}"
                 else:
-                    render_data["text"] = f"投稿了新视频: {title}<br>"
-
+                    render_data["text"] = f"投稿了新视频<br>"
+                render_data["title"] = title
                 render_data["image_urls"] = [cover_url]
                 url = f"https://www.bilibili.com/video/{bv}"
                 render_data["qrcode"] = await create_qrcode(url)
@@ -478,9 +477,8 @@ class Main(Star):
                     logger.info(f"互动抽奖在过滤列表 {filter_types} 中。")
                     return None, dyn_id
 
-                render_data["name"] = name
-                render_data["avatar"] = avatar
                 render_data["text"] = await parse_rich_text(summary, topic)
+                render_data["title"] = opus["title"]
                 render_data["image_urls"] = [pic["url"] for pic in opus["pics"][:9]]
                 url = f"https:{jump_url}"
                 render_data["qrcode"] = await create_qrcode(url)

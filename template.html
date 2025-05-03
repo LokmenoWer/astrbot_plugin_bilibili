@@ -112,7 +112,7 @@
         font-size: 13px;
         padding: 4px 10px;
         border-radius: 6px;
-        background: linear-gradient(45deg, #ffe0e6, #f8f9fa);
+        background: linear-gradient(45deg, #ffe0e6, #d6e9fb);
         color: #7e57c2;
         font-weight: 600;
         display: inline-block;
@@ -248,7 +248,6 @@
         grid-template-columns: repeat(3, 1fr);
     }
 
-
     /* 页脚样式 */
     .card-footer {
         padding: 18px 24px;
@@ -287,6 +286,9 @@
             <div class="up-info">
                 <span class="up-name">{{ name | default('AstrBot') }}</span>
                 <span class="dynamic-type">订阅更新</span>
+                {% if title %}
+                <span class="dynamic-type">{{ title }}</span>
+                {% endif %}
             </div>
         </div>
 

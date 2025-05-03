@@ -17,6 +17,7 @@ async def create_render_data() -> dict:
         "image_urls": [],
         "qrcode": "",
         "url": "",
+        "title":""
     }
 
 
@@ -85,7 +86,7 @@ def is_valid_url(url: str) -> bool:
 
 
 async def parse_rich_text(summary, topic):
-    text = summary["text"].replace("\n", "<br>")
+    text = "<br>".join(filter(None, summary["text"].split("\n")))
     if topic:
         topic_link = f"<a href='{topic['jump_url']}'>{topic['name']}</a>"
         text = f"# {topic_link}<br>" + text
