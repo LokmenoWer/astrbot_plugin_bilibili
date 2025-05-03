@@ -3,4 +3,4 @@ desc: 哔哩哔哩动态推送、视频信息、直播间信息查询、自然�
 help: 输入 /bili 查看关键词回复帮助。
 version: v1.4.0 # 插件的版本号
 author: Soulter # 作者
-repo: https://github.com/Soulter/astrbot_plugin_bilibili # 插件的仓库地址
+repo: https://github.com/Flartiny/astrbot_plugin_bilibili/tree/v1_4 # 插件的仓库地址
