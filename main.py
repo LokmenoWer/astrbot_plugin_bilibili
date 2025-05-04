@@ -13,6 +13,8 @@ from astrbot.api.event.filter import (
     llm_tool,
     permission_type,
     PermissionType,
+    event_message_type,
+    EventMessageType
 )
 from bilibili_api.bangumi import IndexFilter as IF
 from .constant import category_mapping
@@ -26,7 +28,8 @@ template_path = os.path.join(current_dir, "template.html")
 logo_path = os.path.join(current_dir, "Astrbot.png")
 with open(template_path, "r", encoding="utf-8") as file:
     HTML_TEMPLATE = file.read()
-
+max_attempts = 3
+retry_delay = 2
 VALID_FILTER_TYPES = {"forward", "lottery", "video"}
 DEFAULT_CFG = {
     "bili_sub_list": {}  # sub_user -> [{"uid": "uid", "last": "last_dynamic_id"}]
@@ -74,19 +77,35 @@ class Main(Star):
         v = video.Video(bvid=bvid)
         info = await v.get_info()
         online = await v.get_online()
-        ret = f"""Billibili 视频信息：
-标题: {info['title']}
-UP主: {info['owner']['name']}
-播放量: {info['stat']['view']}
-点赞: {info['stat']['like']}
-投币: {info['stat']['coin']}
-总共 {online['total']} 人正在观看"""
-        ls = [Plain(ret), Image.fromURL(info["pic"])]
 
-        result = CommandResult()
-        result.chain = ls
-        result.use_t2i(False)
-        return result
+        render_data = await create_render_data()
+        render_data["name"] = "AstrBot"
+        render_data["avatar"] = await image_to_base64(logo_path)
+        render_data["title"] = info["title"]
+        render_data["text"] = (
+            f"UP 主: {info['owner']['name']}<br>"
+            f"播放量: {info['stat']['view']}<br>"
+            f"点赞: {info['stat']['like']}<br>"
+            f"投币: {info['stat']['coin']}<br>"
+            f"总共 {online['total']} 人正在观看"
+        )
+        render_data["image_urls"] = [info["pic"]]
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                src = await self.html_render(HTML_TEMPLATE, render_data, False)
+                if src and os.path.exists(src) and os.path.getsize(src) > 0:
+                    await get_and_crop_image(src, IMG_PATH)
+                    break
+            except Exception as e:
+                logger.error(f"Attempt: {attempt}: 渲染图片失败: {e}")
+            finally:
+                if os.path.exists(src):
+                    os.remove(src)
+            if attempt < max_attempts:
+                await asyncio.sleep(retry_delay)
+
+        await message.send(MessageChain().file_image(IMG_PATH))
 
     async def save_cfg(self):
         with open(DATA_PATH, "w", encoding="utf-8") as f:
@@ -137,7 +156,7 @@ UP主: {info['owner']['name']}
         name = usr_info["name"]
         sex = usr_info["sex"]
         avatar = usr_info["face"]
-        pendant = usr_info["pendant"]["image"]
+        # pendant = usr_info["pendant"]["image"]
         # sign = usr_info["sign"]
         # title = usr_info["official"]["title"]
 
@@ -174,7 +193,7 @@ UP主: {info['owner']['name']}
         render_data = await create_render_data()
         render_data["name"] = "AstrBot"
         render_data["avatar"] = await image_to_base64(logo_path)
-        render_data["pendant"] = pendant
+        # render_data["pendant"] = pendant
         render_data["text"] = (
             f"📣 订阅成功！<br>"
             f"UP 主: {name} | 性别: {sex}"
@@ -183,9 +202,21 @@ UP主: {info['owner']['name']}
         render_data["image_urls"] = [avatar]
         render_data["url"] = f"https://space.bilibili.com/{mid}"
         render_data["qrcode"] = await create_qrcode(render_data["url"])
-        src = await self.html_render(HTML_TEMPLATE, render_data, False)
-        await get_and_crop_image(src, IMG_PATH)
-        os.remove(src)
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                src = await self.html_render(HTML_TEMPLATE, render_data, False)
+                if src and os.path.exists(src) and os.path.getsize(src) > 0:
+                    await get_and_crop_image(src, IMG_PATH)
+                    break
+            except Exception as e:
+                logger.error(f"Attempt: {attempt}: 渲染图片失败: {e}")
+            finally:
+                if os.path.exists(src):
+                    os.remove(src)
+            if attempt < max_attempts:
+                await asyncio.sleep(retry_delay)
+
         await message.send(
             MessageChain().file_image(IMG_PATH).message(render_data["url"])
         )
@@ -291,8 +322,20 @@ UP主: {info['owner']['name']}
                                 dyn, uid_sub_data
                             )
                             if ret:
-                                src = await self.html_render(HTML_TEMPLATE, ret, False)
-                                await get_and_crop_image(src, IMG_PATH)
+                                for attempt in range(1, max_attempts + 1):
+                                    try:
+                                        src = await self.html_render(HTML_TEMPLATE, ret, False)
+                                        if src and os.path.exists(src) and os.path.getsize(src) > 0:
+                                            await get_and_crop_image(src, IMG_PATH)
+                                            break
+                                    except Exception as e:
+                                        logger.error(f"Attempt: {attempt}: 渲染图片失败: {e}")
+                                    finally:
+                                        if os.path.exists(src):
+                                            os.remove(src)
+                                    if attempt < max_attempts:
+                                        await asyncio.sleep(retry_delay)
+
                                 await self.context.send_message(
                                     sub_usr,
                                     MessageChain()
@@ -302,7 +345,6 @@ UP主: {info['owner']['name']}
                                 self.data["bili_sub_list"][sub_usr][idx]["last"] = (
                                     dyn_id
                                 )
-                                os.remove(src)
                                 await self.save_cfg()
 
                         if lives is not None:
@@ -348,17 +390,25 @@ UP主: {info['owner']['name']}
                                 await self.save_cfg()
                             if render_data["text"]:
                                 render_data["qrcode"] = await create_qrcode(link)
-                                src = await self.html_render(
-                                    HTML_TEMPLATE, render_data, False
-                                )
-                                await get_and_crop_image(src, IMG_PATH)
+                                for attempt in range(1, max_attempts + 1):
+                                    try:
+                                        src = await self.html_render(HTML_TEMPLATE, render_data, False)
+                                        if src and os.path.exists(src) and os.path.getsize(src) > 0:
+                                            await get_and_crop_image(src, IMG_PATH)
+                                            break
+                                    except Exception as e:
+                                        logger.error(f"Attempt: {attempt}: 渲染图片失败: {e}")
+                                    finally:
+                                        if os.path.exists(src):
+                                            os.remove(src)
+                                    if attempt < max_attempts:
+                                        await asyncio.sleep(retry_delay)
                                 await self.context.send_message(
                                     sub_usr,
                                     MessageChain()
                                     .file_image(IMG_PATH)
                                     .message(render_data["url"]),
                                 )
-                                os.remove(src)
 
                     except Exception as e:
                         raise e
@@ -510,3 +560,32 @@ UP主: {info['owner']['name']}
                 return render_data, dyn_id
 
         return None, None
+        
+    @event_message_type(EventMessageType.ALL)
+    async def parse_miniapp(self, event: AstrMessageEvent):
+        if not event.message_obj.message:
+            logger.warning("Received an empty message list.")
+            return
+
+        for msg_element in event.message_obj.message:
+            if hasattr(msg_element, 'type') and msg_element.type == 'Json' and hasattr(msg_element, 'data'):
+                json_string = msg_element.data
+
+                try:
+                    parsed_data = json.loads(json_string)
+                    meta = parsed_data.get('meta', {})
+                    detail_1 = meta.get('detail_1', {})
+                    title = detail_1.get('title')
+                    qqdocurl = detail_1.get('qqdocurl')
+                    desc = detail_1.get('desc')
+
+                    if title == "哔哩哔哩" and qqdocurl:
+                        ret = (
+                            f"视频: {desc}\n"
+                            f"链接: {qqdocurl}"
+                        )
+                        yield event.plain_result(ret)
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to decode JSON string: {json_string}")
+                except Exception as e:
+                    logger.error(f"An error occurred during JSON processing: {e}")
