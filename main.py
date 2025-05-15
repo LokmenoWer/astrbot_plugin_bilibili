@@ -14,7 +14,7 @@ from astrbot.api.event.filter import (
     permission_type,
     PermissionType,
     event_message_type,
-    EventMessageType
+    EventMessageType,
 )
 from bilibili_api.bangumi import IndexFilter as IF
 from .constant import category_mapping
@@ -34,7 +34,7 @@ VALID_FILTER_TYPES = {"forward", "lottery", "video"}
 DEFAULT_CFG = {
     "bili_sub_list": {}  # sub_user -> [{"uid": "uid", "last": "last_dynamic_id"}]
 }
-DATA_PATH = "data/astrbot_plugin_bilibili_test.json"
+DATA_PATH = "data/astrbot_plugin_bilibili.json"
 IMG_PATH = "data/temp.jpg"
 BV = r"(?:\?.*)?(?:https?:\/\/)?(?:www\.)?bilibili\.com\/video\/(BV[\w\d]+)\/?(?:\?.*)?|BV[\w\d]+"
 logger = logging.getLogger("astrbot")
@@ -121,13 +121,14 @@ class Main(Star):
             return CommandResult().message("UID 格式错误")
 
         # 检查是否已经存在该订阅
-        if sub_user in self.data["bili_sub_list"] and any(
-            sub["uid"] == int(uid) for sub in self.data["bili_sub_list"][sub_user]
-        ):
-            # 如果已存在，可以选择更新其过滤条件，或者提示用户先删除再添加
-            return CommandResult().message(
-                "该动态已订阅，如需修改过滤条件请先删除再重新订阅。"
-            )  # 简化处理，也可以实现更新逻辑
+        if sub_user in self.data["bili_sub_list"]:
+            # 如果已存在，更新其过滤条件
+            for sub in self.data["bili_sub_list"][sub_user]:
+                if sub["uid"] == int(uid):
+                    sub["filter_types"] = filter_types
+                    sub["filter_regex"] = filter_regex
+                    await self.save_cfg()
+                    return CommandResult().message("该动态已订阅，已更新过滤条件。")
 
         usr = user.User(int(uid), credential=self.credential)
 
@@ -245,14 +246,17 @@ class Main(Star):
             start_year(number): 起始年份。默认为空，即不限制年份。
             end_year(number): 结束年份。默认为空，即不限制年份。
         """
+
         if style in category_mapping:
             style = getattr(IF.Style.Anime, category_mapping[style], IF.Style.Anime.ALL)
         else:
             style = IF.Style.Anime.ALL
+
         if season in ["WINTER", "SPRING", "SUMMER", "AUTUMN"]:
             season = getattr(IF.Season, season, IF.Season.ALL)
         else:
             season = IF.Season.ALL
+
         filters = bangumi.IndexFilterMeta.Anime(
             area=IF.Area.JAPAN,
             year=IF.make_time_filter(start=start_year, end=end_year, include_end=True),
@@ -366,7 +370,9 @@ class Main(Star):
 
                     except Exception as e:
                         # raise e
-                        logger.error(f"处理订阅者 {sub_usr} 的 UP主 {uid_sub_data.get('uid', '未知UID')} 时发生错误: {e}\n{traceback.format_exc()}")
+                        logger.error(
+                            f"处理订阅者 {sub_usr} 的 UP主 {uid_sub_data.get('uid', '未知UID')} 时发生错误: {e}\n{traceback.format_exc()}"
+                        )
 
     @permission_type(PermissionType.ADMIN)
     @command("全局删除")
@@ -385,6 +391,7 @@ class Main(Star):
 
         if not candidate:
             return CommandResult().message("未找到订阅")
+
         if len(candidate) == 1:
             self.data["bili_sub_list"].pop(candidate[0])
             await self.save_cfg()
@@ -427,8 +434,8 @@ class Main(Star):
                 return None, None
 
             dyn_id = item["id_str"]
-            type_debug = item["type"]
-            logger.info(f"type: {type_debug}")
+            # type_debug = item["type"]
+            # logger.info(f"id: {dyn_id}, type: {type_debug}")
             # 转发类型
             if item["type"] == "DYNAMIC_TYPE_FORWARD":
                 if "forward" in filter_types:
@@ -452,12 +459,19 @@ class Main(Star):
                 render_data["qrcode"] = await create_qrcode(render_data["url"])
 
                 render_forward = await create_render_data()
-                render_forward = await self.build_render(item["orig"], render_forward, is_forward=True)
+                render_forward = await self.build_render(
+                    item["orig"], render_forward, is_forward=True
+                )
                 if render_forward["image_urls"]:  # 检查列表是否非空
-                    render_forward["image_urls"] = [render_forward["image_urls"][0]]  # 保留第一项
+                    render_forward["image_urls"] = [
+                        render_forward["image_urls"][0]
+                    ]  # 保留第一项
                 render_data["forward"] = render_forward
                 return render_data, dyn_id
-            elif item["type"] == "DYNAMIC_TYPE_DRAW" or item["type"] == "DYNAMIC_TYPE_WORD":
+            elif (
+                item["type"] == "DYNAMIC_TYPE_DRAW"
+                or item["type"] == "DYNAMIC_TYPE_WORD"
+            ):
                 # 图文类型过滤
                 opus = item["modules"]["module_dynamic"]["major"]["opus"]
                 summary_text = opus["summary"]["text"]
@@ -479,7 +493,7 @@ class Main(Star):
                         except re.error as e:
                             continue  # 如果正则表达式本身有误，跳过这个正则继续检查下一个
                 render_data = await create_render_data()
-                render_data = await self.build_render(item, render_data) 
+                render_data = await self.build_render(item, render_data)
                 return render_data, dyn_id
             elif item["type"] == "DYNAMIC_TYPE_AV":
                 # 视频类型过滤
@@ -489,9 +503,11 @@ class Main(Star):
                 render_data = await create_render_data()
                 render_data = await self.build_render(item, render_data)
                 return render_data, dyn_id
+            else:
+                return None, None
 
         return None, None
-        
+
     @event_message_type(EventMessageType.ALL)
     async def parse_miniapp(self, event: AstrMessageEvent):
         if not event.message_obj.message:
@@ -499,30 +515,31 @@ class Main(Star):
             return
 
         for msg_element in event.message_obj.message:
-            if hasattr(msg_element, 'type') and msg_element.type == 'Json' and hasattr(msg_element, 'data'):
+            if (
+                hasattr(msg_element, "type")
+                and msg_element.type == "Json"
+                and hasattr(msg_element, "data")
+            ):
                 json_string = msg_element.data
 
                 try:
                     parsed_data = json.loads(json_string)
-                    meta = parsed_data.get('meta', {})
-                    detail_1 = meta.get('detail_1', {})
-                    title = detail_1.get('title')
-                    qqdocurl = detail_1.get('qqdocurl')
-                    desc = detail_1.get('desc')
-                    
+                    meta = parsed_data.get("meta", {})
+                    detail_1 = meta.get("detail_1", {})
+                    title = detail_1.get("title")
+                    qqdocurl = detail_1.get("qqdocurl")
+                    desc = detail_1.get("desc")
+
                     if title == "哔哩哔哩" and qqdocurl:
-                        if 'https://b23.tv' in qqdocurl:
+                        if "https://b23.tv" in qqdocurl:
                             qqdocurl = await b23_to_bv(qqdocurl)
-                        ret = (
-                            f"视频: {desc}\n"
-                            f"链接: {qqdocurl}"
-                        )
+                        ret = f"视频: {desc}\n链接: {qqdocurl}"
                         yield event.plain_result(ret)
                 except json.JSONDecodeError:
                     logger.error(f"Failed to decode JSON string: {json_string}")
                 except Exception as e:
                     logger.error(f"An error occurred during JSON processing: {e}")
-    
+
     async def render_dynamic(self, render_data: dict):
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
@@ -537,7 +554,7 @@ class Main(Star):
                     os.remove(src)
             if attempt < MAX_ATTEMPTS:
                 await asyncio.sleep(RETRY_DELAY)
-    
+
     async def build_render(self, item, render_data, is_forward=False):
         # 用户名称
         name = item["modules"]["module_author"]["name"]
@@ -545,12 +562,9 @@ class Main(Star):
 
         render_data["name"] = name
         render_data["avatar"] = avatar
-        render_data["pendant"] = item["modules"]["module_author"]["pendant"][
-            "image"
-        ]
+        render_data["pendant"] = item["modules"]["module_author"]["pendant"]["image"]
         # 视频
         if item["type"] == "DYNAMIC_TYPE_AV":
-            
             archive = item["modules"]["module_dynamic"]["major"]["archive"]
             title = archive["title"]
             bv = archive["bvid"]
@@ -578,10 +592,7 @@ class Main(Star):
             # logger.info(f"返回视频动态 {dyn_id}。")
             return render_data
         # 图文
-        elif (
-            item["type"] == "DYNAMIC_TYPE_DRAW"
-            or item["type"] == "DYNAMIC_TYPE_WORD"
-        ):
+        elif item["type"] == "DYNAMIC_TYPE_DRAW" or item["type"] == "DYNAMIC_TYPE_WORD":
             opus = item["modules"]["module_dynamic"]["major"]["opus"]
             summary = opus["summary"]
             jump_url = opus["jump_url"]
