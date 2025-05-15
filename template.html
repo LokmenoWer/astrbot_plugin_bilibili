@@ -59,8 +59,8 @@
         justify-content: space-between;
     }
     .avatar-container {
-        width:  74px; /* 与原头像大小一致 */
-        height: 74px;
+        width:  96px; /* 与原头像大小一致 */
+        height: 96px;
         position: relative; /* 作为绝对定位的参照物 */
         margin-right: 16px; /* 保持与右侧信息的间距 */
         flex-shrink: 0; /* 防止容器被压缩 */
@@ -75,7 +75,7 @@
         transform: scale(0.55) translate(4px, 0px);
         border-radius: 50%; /* 保持圆形 */
         object-fit: cover; /* 保持图片填充方式 */
-        border: 2px solid #fff; /* 保持边框 */
+        border: 0px solid #ffffff; /* 保持边框 */
         box-shadow: 0 2px 8px rgba(255, 87, 155, 0.3); /* 保持阴影 */
         display: block; /* 确保是块级元素 */
         z-index: 1;
@@ -293,8 +293,6 @@
         width: auto;              /* 宽度自适应高度，保持比例 */
         vertical-align: text-bottom; /* 关键：垂直对齐方式，text-bottom 或 middle 通常较好 */
         margin: 0 0.15em;         /* 可选：给图片左右加一点小间距 */
-        /* 可选：如果图片本身没有透明背景，可以加个小圆角 */
-        /* border-radius: 3px; */
     }
     .rich-text-content a {
         text-decoration: none;
@@ -304,17 +302,14 @@
 
     .image-gallery {
         border-radius: 18px;
-        /* 关键：占据所有剩余空间 */
         flex: 1;
         display: grid;
         gap: 10px;
         padding: 8px 12px 10px;
         background: linear-gradient(135deg, #cff3f9 30%, #bfd2fb 70%);
-        /* 关键：隐藏网格自身可能产生的溢出 */
         overflow: hidden;
-        /* height: 100%; */ /* flex:1 会自动处理高度，移除 height: 100% */
         box-sizing: border-box;
-        min-height: 0; /* 允许收缩到0，配合 flex:1 */
+        min-height: 0;
         grid-auto-rows: minmax(0, 1fr);
     }
 
@@ -325,14 +320,13 @@
         padding: 20px; /* 给单张图更多边距 */
         grid-auto-rows: auto;
     }
-    
     .image-gallery.count-1 img {
        /* 让图片自适应容器大小，保持比例 */
-       max-width: 100%;
-       max-height: 100%;
-       width: auto; /* 宽度自适应 */
-       height: auto; /* 高度自适应 */
-       object-fit: contain;
+        max-width: 100%;
+        max-height: 100%;
+        width: auto; /* 宽度自适应 */
+        height: auto; /* 高度自适应 */
+        object-fit: contain;
     }
 
     .image-gallery img {
@@ -440,13 +434,13 @@
                     </div>
                 {% endif %}
 
-                 {% if forward.image_urls %}
+                {% if forward.image_urls %}
                     <div class="forward-image">
                         {% for img_url in forward.image_urls %}
                         <img src="{{ img_url }}" alt="forward image">
                         {% endfor %}
                     </div>
-                 {% endif %}
+                {% endif %}
             </div>
 
         {% elif image_urls %}
