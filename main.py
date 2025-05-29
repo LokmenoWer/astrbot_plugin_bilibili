@@ -304,7 +304,7 @@ class Main(Star):
                                 dyn, uid_sub_data
                             )
                             if ret:
-                                if not self.rai and (ret["type"] == "DYNAMIC_TYPE_DRAW" or ret["type" == "DYNAMIC_TYPE_WORD"]):
+                                if not self.rai and (ret["type"] == "DYNAMIC_TYPE_DRAW" or ret["type"] == "DYNAMIC_TYPE_WORD"):
                                     name = ret["name"]
                                     ls = [Plain(f"📣 UP 主 「{name}」 发布了新图文动态:\n")]
                                     ls.append(Plain(ret["summary"]))
