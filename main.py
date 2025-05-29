@@ -62,7 +62,7 @@ class Main(Star):
                 f.write(json.dumps(DEFAULT_CFG, ensure_ascii=False, indent=4))
         with open(DATA_PATH, "r", encoding="utf-8-sig") as f:
             self.data = json.load(f)
-        asyncio.create_task(self.dynamic_listener())
+        self.dynamic_listener_task = asyncio.create_task(self.dynamic_listener())
 
     @regex(BV)
     async def get_video_info(self, message: AstrMessageEvent):
@@ -635,3 +635,13 @@ class Main(Star):
                 render_data["text"] = f"{rich_text}"
             return render_data
         return render_data
+
+    async def terminate(self):
+        if self.dynamic_listener_task and not self.dynamic_listener_task.done():
+            self.dynamic_listener_task.cancel()
+            try:
+                await self.dynamic_listener_task
+            except asyncio.CancelledError:
+                logger.info("bilibili dynamic_listener task was successfully cancelled during terminate.")
+            except Exception as e:
+                logger.error(f"Error awaiting cancellation of dynamic_listener task: {e}")
