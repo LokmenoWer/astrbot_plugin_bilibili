@@ -9,10 +9,10 @@
 - [x] 动态的Title（目前应该仅有text）
 - [x] 代码中text改为content(改为了content_text，rich_text表意更清晰)
 - [x] 冗余变量合并/删除(配置项rai还在)
-- [ ] 配置是否图片渲染开关(不一定做, 目前invisible)
+- [x] 配置是否图片渲染开关(对图文动态生效)
 - [x] 解析转发的小程序为直链
 - [ ] 专栏类型
 - [ ] 代码嵌套逻辑优化
-- [ ] 疑似卸载时listener未销毁，需重启生效
+- [x] 添加terminate以销毁listener
 
 ❌ 图后跟链接的格式(链接对应图中qrcode，再加文字感觉四不像了)
