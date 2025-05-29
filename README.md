@@ -2,9 +2,6 @@
 
 Bilibili 插件
 
-> [!Note]
-> 需要 curl_cffi 版本在 0.8.1b9。使用 pip install curl_cffi~=0.8.1b9 安装
-
 - 消息识别 BV 号返回视频信息
 - 订阅 UP 动态：支持 `直播` `图文动态` `视频动态` 的订阅
    - 指令：
@@ -39,3 +36,8 @@ Bilibili 插件
 ```
 plugin i https://github.com/Soulter/astrbot_plugin_bilibili
 ```
+
+## Contributors
+
+1. [@Flartiny](https://github.com/Flartiny)
+2. [@Soulter](https://github.com/Soulter)
