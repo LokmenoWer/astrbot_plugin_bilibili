@@ -56,12 +56,14 @@ class Main(Star):
 
         self.context = context
         self.rai = self.cfg.get("rai", True)
+        self.enable_parse_miniapp = self.cfg.get("enable_parse_miniapp", True)
 
         if not os.path.exists(DATA_PATH):
             with open(DATA_PATH, "w", encoding="utf-8-sig") as f:
                 f.write(json.dumps(DEFAULT_CFG, ensure_ascii=False, indent=4))
         with open(DATA_PATH, "r", encoding="utf-8-sig") as f:
             self.data = json.load(f)
+
         self.dynamic_listener_task = asyncio.create_task(self.dynamic_listener())
 
     @regex(BV)
@@ -520,17 +522,18 @@ class Main(Star):
 
     @event_message_type(EventMessageType.ALL)
     async def parse_miniapp(self, event: AstrMessageEvent):
-        if not event.message_obj.message:
-            logger.warning("Received an empty message list.")
-            return
+        if self.enable_parse_miniapp:
+            if not event.message_obj.message:
+                logger.warning("Received an empty message list.")
+                return
 
-        for msg_element in event.message_obj.message:
-            if (
-                hasattr(msg_element, "type")
-                and msg_element.type == "Json"
-                and hasattr(msg_element, "data")
-            ):
-                json_string = msg_element.data
+            for msg_element in event.message_obj.message:
+                if (
+                    hasattr(msg_element, "type")
+                    and msg_element.type == "Json"
+                    and hasattr(msg_element, "data")
+                ):
+                    json_string = msg_element.data
 
                 try:
                     parsed_data = json.loads(json_string)
