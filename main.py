@@ -535,23 +535,23 @@ class Main(Star):
                 ):
                     json_string = msg_element.data
 
-                try:
-                    parsed_data = json.loads(json_string)
-                    meta = parsed_data.get("meta", {})
-                    detail_1 = meta.get("detail_1", {})
-                    title = detail_1.get("title")
-                    qqdocurl = detail_1.get("qqdocurl")
-                    desc = detail_1.get("desc")
+                    try:
+                        parsed_data = json.loads(json_string)
+                        meta = parsed_data.get("meta", {})
+                        detail_1 = meta.get("detail_1", {})
+                        title = detail_1.get("title")
+                        qqdocurl = detail_1.get("qqdocurl")
+                        desc = detail_1.get("desc")
 
-                    if title == "哔哩哔哩" and qqdocurl:
-                        if "https://b23.tv" in qqdocurl:
-                            qqdocurl = await b23_to_bv(qqdocurl)
-                        ret = f"视频: {desc}\n链接: {qqdocurl}"
-                        yield event.plain_result(ret)
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to decode JSON string: {json_string}")
-                except Exception as e:
-                    logger.error(f"An error occurred during JSON processing: {e}")
+                        if title == "哔哩哔哩" and qqdocurl:
+                            if "https://b23.tv" in qqdocurl:
+                                qqdocurl = await b23_to_bv(qqdocurl)
+                            ret = f"视频: {desc}\n链接: {qqdocurl}"
+                            yield event.plain_result(ret)
+                    except json.JSONDecodeError:
+                        logger.error(f"Failed to decode JSON string: {json_string}")
+                    except Exception as e:
+                        logger.error(f"An error occurred during JSON processing: {e}")
 
     async def render_dynamic(self, render_data: dict):
         for attempt in range(1, MAX_ATTEMPTS + 1):
