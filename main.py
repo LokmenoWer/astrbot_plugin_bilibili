@@ -306,13 +306,22 @@ class Main(Star):
                                 dyn, uid_sub_data
                             )
                             if ret:
-                                if not self.rai and (ret["type"] == "DYNAMIC_TYPE_DRAW" or ret["type"] == "DYNAMIC_TYPE_WORD"):
+                                if not self.rai and (
+                                    ret["type"] == "DYNAMIC_TYPE_DRAW"
+                                    or ret["type"] == "DYNAMIC_TYPE_WORD"
+                                ):
                                     name = ret["name"]
-                                    ls = [Plain(f"📣 UP 主 「{name}」 发布了新图文动态:\n")]
+                                    ls = [
+                                        Plain(
+                                            f"📣 UP 主 「{name}」 发布了新图文动态:\n"
+                                        )
+                                    ]
                                     ls.append(Plain(ret["summary"]))
                                     for pic in ret["image_urls"]:
                                         ls.append(Image.fromURL(pic))
-                                    await self.context.send_message(sub_usr, CommandResult(chain=ls).use_t2i(False))
+                                    await self.context.send_message(
+                                        sub_usr, CommandResult(chain=ls).use_t2i(False)
+                                    )
                                 else:
                                     await self.render_dynamic(ret)
                                     await self.context.send_message(
@@ -576,6 +585,8 @@ class Main(Star):
         render_data["name"] = name
         render_data["avatar"] = avatar
         render_data["pendant"] = item["modules"]["module_author"]["pendant"]["image"]
+        render_data["type"] = item["type"]
+
         # 视频
         if item["type"] == "DYNAMIC_TYPE_AV":
             archive = item["modules"]["module_dynamic"]["major"]["archive"]
@@ -612,11 +623,10 @@ class Main(Star):
             topic = item["modules"]["module_dynamic"]["topic"]
 
             render_data["summary"] = summary["text"]
-            render_data["type"] = item["type"]
             render_data["text"] = await parse_rich_text(summary, topic)
             render_data["title"] = opus["title"]
             render_data["image_urls"] = [pic["url"] for pic in opus["pics"][:9]]
-            if not render_data["image_urls"]:
+            if not render_data["image_urls"] and self.rai:
                 render_data["image_urls"] = [await image_to_base64(LOGO_PATH)]
             if not is_forward:
                 url = f"https:{jump_url}"
@@ -645,6 +655,10 @@ class Main(Star):
             try:
                 await self.dynamic_listener_task
             except asyncio.CancelledError:
-                logger.info("bilibili dynamic_listener task was successfully cancelled during terminate.")
+                logger.info(
+                    "bilibili dynamic_listener task was successfully cancelled during terminate."
+                )
             except Exception as e:
-                logger.error(f"Error awaiting cancellation of dynamic_listener task: {e}")
+                logger.error(
+                    f"Error awaiting cancellation of dynamic_listener task: {e}"
+                )
