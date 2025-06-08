@@ -20,7 +20,7 @@ from bilibili_api.bangumi import IndexFilter as IF
 from .constant import category_mapping
 from astrbot.api.all import *
 from typing import List, Optional
-import PIL
+from .data_manager import DataManager
 from .utils import *
 
 CURRENT_DIR = os.path.dirname(__file__)
@@ -58,11 +58,7 @@ class Main(Star):
         self.rai = self.cfg.get("rai", True)
         self.enable_parse_miniapp = self.cfg.get("enable_parse_miniapp", True)
 
-        if not os.path.exists(DATA_PATH):
-            with open(DATA_PATH, "w", encoding="utf-8-sig") as f:
-                f.write(json.dumps(DEFAULT_CFG, ensure_ascii=False, indent=4))
-        with open(DATA_PATH, "r", encoding="utf-8-sig") as f:
-            self.data = json.load(f)
+        self.data_manager = DataManager(DATA_PATH)
 
         self.dynamic_listener_task = asyncio.create_task(self.dynamic_listener())
 
@@ -97,9 +93,6 @@ class Main(Star):
 
         await message.send(MessageChain().file_image(IMG_PATH))
 
-    async def save_cfg(self):
-        with open(DATA_PATH, "w", encoding="utf-8") as f:
-            f.write(json.dumps(self.data, ensure_ascii=False, indent=2))
 
     @command("订阅动态")
     async def dynamic_sub(self, message: AstrMessageEvent):
@@ -123,14 +116,11 @@ class Main(Star):
             return CommandResult().message("UID 格式错误")
 
         # 检查是否已经存在该订阅
-        if sub_user in self.data["bili_sub_list"]:
+        if self.data_manager.get_subscription(sub_user, int(uid)):
             # 如果已存在，更新其过滤条件
-            for sub in self.data["bili_sub_list"][sub_user]:
-                if sub["uid"] == int(uid):
-                    sub["filter_types"] = filter_types
-                    sub["filter_regex"] = filter_regex
-                    await self.save_cfg()
-                    return CommandResult().message("该动态已订阅，已更新过滤条件。")
+            await self.data_manager.update_subscription(sub_user, int(uid), filter_types, filter_regex)
+            return CommandResult().message("该动态已订阅，已更新过滤条件。")
+        # 以下为新增订阅
 
         usr = user.User(int(uid), credential=self.credential)
 
@@ -168,12 +158,9 @@ class Main(Star):
         except Exception as e:
             logger.error(f"获取 {name} 初始动态失败: {e}")
 
+
         # 保存配置
-        if sub_user in self.data["bili_sub_list"]:
-            self.data["bili_sub_list"][sub_user].append(_sub_data)
-        else:
-            self.data["bili_sub_list"][sub_user] = [_sub_data]
-        await self.save_cfg()
+        await self.data_manager.add_subscription(sub_user, _sub_data)
 
         filter_desc = ""
         if filter_types:
@@ -210,31 +197,29 @@ class Main(Star):
         """查看 bilibili 动态监控列表"""
         sub_user = message.unified_msg_origin
         ret = """订阅列表：\n"""
-        if sub_user in self.data["bili_sub_list"]:
-            for idx, uid_sub_data in enumerate(self.data["bili_sub_list"][sub_user]):
-                ret += f"{idx + 1}. {uid_sub_data['uid']}\n"
-            return CommandResult().message(ret)
+        subs = self.data_manager.get_subscriptions_by_user(sub_user)
+
+        if not subs:
+            yield message.plain_result("无订阅")
         else:
-            return CommandResult().message("无订阅")
+            for idx, uid_sub_data in enumerate(subs):
+                ret += f"{idx + 1}. {uid_sub_data['uid']}\n"
+            yield message.plain_result(ret)
 
     @command("订阅删除")
     async def sub_del(self, message: AstrMessageEvent, uid: str):
         """删除 bilibili 动态监控"""
         sub_user = message.unified_msg_origin
-        if sub_user in self.data["bili_sub_list"]:
-            if len(uid) < 1:
-                return CommandResult().message("参数数量不足。订阅动态 b站id")
+        if not uid or not uid.isdigit():
+            return CommandResult().message("参数错误，请提供正确的UID。")
 
-            uid = int(uid)
+        uid2del = int(uid)
 
-            for idx, uid_sub_data in enumerate(self.data["bili_sub_list"][sub_user]):
-                if uid_sub_data["uid"] == uid:
-                    del self.data["bili_sub_list"][sub_user][idx]
-                    await self.save_cfg()
-                    return CommandResult().message("删除成功")
-            return CommandResult().message("未找到指定的订阅")
+        if await self.data_manager.remove_subscription(sub_user, uid2del):
+            return CommandResult().message("删除成功")
         else:
-            return CommandResult().message("您还没有订阅哦！")
+            return CommandResult().message("未找到指定的订阅")
+
 
     @llm_tool("get_bangumi")
     async def get_bangumi(
@@ -291,9 +276,10 @@ class Main(Star):
             if self.credential is None:
                 logger.warning("bilibili sessdata 未设置，无法获取动态")
                 continue
-            for sub_usr in self.data["bili_sub_list"]:
+            all_subs = self.data_manager.get_all_subscriptions()
+            for sub_usr in all_subs:
                 # 遍历所有订阅的用户
-                for idx, uid_sub_data in enumerate(self.data["bili_sub_list"][sub_usr]):
+                for idx, uid_sub_data in enumerate(all_subs[sub_usr]):
                     # 遍历用户订阅的UP
                     try:
                         usr = user.User(uid_sub_data["uid"], credential=self.credential)
@@ -306,6 +292,7 @@ class Main(Star):
                                 dyn, uid_sub_data
                             )
                             if ret:
+                                # 有新动态，在此决定是否渲染
                                 if not self.rai and (
                                     ret["type"] == "DYNAMIC_TYPE_DRAW"
                                     or ret["type"] == "DYNAMIC_TYPE_WORD"
@@ -331,15 +318,10 @@ class Main(Star):
                                         .message(ret["url"]),
                                     )
 
-                                self.data["bili_sub_list"][sub_usr][idx]["last"] = (
-                                    dyn_id
-                                )
-                                await self.save_cfg()
+                                await self.data_manager.update_last_dynamic_id(sub_usr, uid_sub_data["uid"], dyn_id)
                             elif dyn_id is not None:
-                                self.data["bili_sub_list"][sub_usr][idx]["last"] = (
-                                    dyn_id
-                                )
-                                await self.save_cfg()
+                                # 有新动态但被过滤，更新 last
+                                await self.data_manager.update_last_dynamic_id(sub_usr, uid_sub_data["uid"], dyn_id)
 
                         if lives is not None:
                             # 获取直播间情况
@@ -397,41 +379,29 @@ class Main(Star):
 
     @permission_type(PermissionType.ADMIN)
     @command("全局删除")
-    async def global_sub(self, message: AstrMessageEvent, sid: str = None):
+    async def global_sub_del(self, message: AstrMessageEvent, sid: str = None):
         """管理员指令。通过 SID 删除某一个群聊或者私聊的所有订阅。使用 /sid 查看当前会话的 SID。"""
         if not sid:
             return CommandResult().message(
                 "通过 SID 删除某一个群聊或者私聊的所有订阅。使用 /sid 指令查看当前会话的 SID。"
             )
 
-        candidate = []
-        for sub_user in self.data["bili_sub_list"]:
-            third = sub_user.split(":")[2]
-            if third == str(sid) or sid == sub_user:
-                candidate.append(sub_user)
+        msg = await self.data_manager.remove_all_for_user(sid)
+        yield message.plain_result(msg)
 
-        if not candidate:
-            return CommandResult().message("未找到订阅")
-
-        if len(candidate) == 1:
-            self.data["bili_sub_list"].pop(candidate[0])
-            await self.save_cfg()
-            return CommandResult().message(f"删除 {sid} 订阅成功")
-
-        return CommandResult().message("找到多个订阅者: " + ", ".join(candidate))
 
     @permission_type(PermissionType.ADMIN)
     @command("全局列表")
     async def global_list(self, message: AstrMessageEvent):
         """管理员指令。查看所有订阅者"""
         ret = "订阅会话列表：\n"
+        all_subs = self.data_manager.get_all_subscriptions()
+        if not all_subs:
+            yield message.plain_result("没有任何会话订阅过。")
 
-        if not self.data["bili_sub_list"]:
-            return CommandResult().message("没有任何会话订阅过。")
-
-        for sub_user in self.data["bili_sub_list"]:
+        for sub_user in all_subs:
             ret += f"- {sub_user}\n"
-        return CommandResult().message(ret)
+        yield message.plain_result(ret)
 
     async def parse_last_dynamic(self, dyn: dict, data: dict):
         uid, last = data["uid"], data["last"]
