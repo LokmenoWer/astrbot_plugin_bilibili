@@ -1,11 +1,11 @@
 import asyncio
-import logging
+from astrbot.api import logger
 import re
 import os
 import json
 import traceback
 from astrbot.api.event import CommandResult, AstrMessageEvent, MessageChain
-from bilibili_api import user, Credential, video, bangumi
+from bilibili_api import bangumi
 from astrbot.api.message_components import Image, Plain
 from astrbot.api.event.filter import (
     command,
@@ -21,6 +21,7 @@ from .constant import category_mapping
 from astrbot.api.all import *
 from typing import List, Optional
 from .data_manager import DataManager
+from .bili_client import BiliClient
 from .utils import *
 
 CURRENT_DIR = os.path.dirname(__file__)
@@ -34,10 +35,9 @@ VALID_FILTER_TYPES = {"forward", "lottery", "video"}
 DEFAULT_CFG = {
     "bili_sub_list": {}  # sub_user -> [{"uid": "uid", "last": "last_dynamic_id"}]
 }
-DATA_PATH = "data/astrbot_plugin_bilibili.json"
 IMG_PATH = "data/temp.jpg"
 BV = r"(?:\?.*)?(?:https?:\/\/)?(?:www\.)?bilibili\.com\/video\/(BV[\w\d]+)\/?(?:\?.*)?|BV[\w\d]+"
-logger = logging.getLogger("astrbot")
+
 
 
 @register("astrbot_plugin_bilibili", "Soulter", "", "", "")
@@ -45,20 +45,14 @@ class Main(Star):
     def __init__(self, context: Context, config: dict) -> None:
         super().__init__(context)
         self.cfg = config
-        self.credential = None
-        if not self.cfg["sessdata"]:
-            logger.error(
-                "bilibili 插件检测到没有设置 sessdata，请设置 bilibili sessdata。"
-            )
-        else:
-            self.credential = Credential(self.cfg["sessdata"])
-        self.interval_mins = float(self.cfg.get("interval_mins", 20))
-
         self.context = context
+
+        self.interval_mins = float(self.cfg.get("interval_mins", 20))
         self.rai = self.cfg.get("rai", True)
         self.enable_parse_miniapp = self.cfg.get("enable_parse_miniapp", True)
-
-        self.data_manager = DataManager(DATA_PATH)
+        
+        self.data_manager = DataManager()
+        self.bili_client = BiliClient(self.cfg.get("sessdata"))
 
         self.dynamic_listener_task = asyncio.create_task(self.dynamic_listener())
 
@@ -72,9 +66,11 @@ class Main(Star):
                 return
             bvid = "BV" + match_.group(1)[2:]
 
-        v = video.Video(bvid=bvid)
-        info = await v.get_info()
-        online = await v.get_online()
+        video_data = await self.bili_client.get_video_info(bvid=bvid)
+        if not video_data:
+            return await message.send("获取视频信息失败了 (´;ω;`)")
+        info = video_data["info"]
+        online = video_data["online"]
 
         render_data = await create_render_data()
         render_data["name"] = "AstrBot"
@@ -116,22 +112,15 @@ class Main(Star):
             return CommandResult().message("UID 格式错误")
 
         # 检查是否已经存在该订阅
-        if self.data_manager.get_subscription(sub_user, int(uid)):
+        if await self.data_manager.update_subscription(sub_user, int(uid), filter_types, filter_regex):
             # 如果已存在，更新其过滤条件
-            await self.data_manager.update_subscription(sub_user, int(uid), filter_types, filter_regex)
             return CommandResult().message("该动态已订阅，已更新过滤条件。")
         # 以下为新增订阅
 
-        usr = user.User(int(uid), credential=self.credential)
-
-        try:
-            usr_info = await usr.get_user_info()
-        except Exception as e:
-            if "code" in e.args[0] and e.args[0]["code"] == -404:
-                return CommandResult().message("啥都木有 (´;ω;`)")
-            else:
-                logger.error(traceback.format_exc())
-                return CommandResult().message(f"获取 UP 主信息失败: {str(e)}")
+        # usr = await self.bili_client.get_user(int(uid))
+        usr_info, msg = await self.bili_client.get_user_info(int(uid))
+        if not usr_info:
+            return CommandResult().message(msg)
 
         mid = usr_info["mid"]
         name = usr_info["name"]
@@ -273,7 +262,7 @@ class Main(Star):
     async def dynamic_listener(self):
         while True:
             await asyncio.sleep(60 * self.interval_mins)
-            if self.credential is None:
+            if self.bili_client.credential is None:
                 logger.warning("bilibili sessdata 未设置，无法获取动态")
                 continue
             all_subs = self.data_manager.get_all_subscriptions()
@@ -282,7 +271,7 @@ class Main(Star):
                 for idx, uid_sub_data in enumerate(all_subs[sub_usr]):
                     # 遍历用户订阅的UP
                     try:
-                        usr = user.User(uid_sub_data["uid"], credential=self.credential)
+                        usr = await self.bili_client.get_user(uid_sub_data["uid"])
                         dyn = await usr.get_dynamics_new()
                         lives = await usr.get_live_info()
                         if dyn is not None:
@@ -325,9 +314,7 @@ class Main(Star):
 
                         if lives is not None:
                             # 获取直播间情况
-                            is_live = self.data["bili_sub_list"][sub_usr][idx].get(
-                                "is_live", False
-                            )
+                            is_live = all_subs[sub_usr][idx].get("is_live", False)
                             live_room = (
                                 lives.get("live_room", {})
                                 or lives.get("live_room:", {})
@@ -349,19 +336,12 @@ class Main(Star):
                                 render_data["text"] = (
                                     f"📣 你订阅的UP 「{user_name}」 开播了！"
                                 )
-                                self.data["bili_sub_list"][sub_usr][idx]["is_live"] = (
-                                    True
-                                )
-                                await self.save_cfg()
+                                await self.data_manager.update_live_status(sub_usr, uid_sub_data["uid"], True)
                             if not live_room.get("liveStatus", "") and is_live:
                                 render_data["text"] = (
                                     f"📣 你订阅的UP 「{user_name}」 下播了！"
                                 )
-
-                                self.data["bili_sub_list"][sub_usr][idx]["is_live"] = (
-                                    False
-                                )
-                                await self.save_cfg()
+                                await self.data_manager.update_live_status(sub_usr, uid_sub_data["uid"], False)
                             if render_data["text"]:
                                 render_data["qrcode"] = await create_qrcode(link)
                                 await self.render_dynamic(render_data)
@@ -397,11 +377,11 @@ class Main(Star):
         ret = "订阅会话列表：\n"
         all_subs = self.data_manager.get_all_subscriptions()
         if not all_subs:
-            yield message.plain_result("没有任何会话订阅过。")
+            return CommandResult().message("没有任何会话订阅过。")
 
         for sub_user in all_subs:
             ret += f"- {sub_user}\n"
-        yield message.plain_result(ret)
+        return CommandResult().message(ret)
 
     async def parse_last_dynamic(self, dyn: dict, data: dict):
         uid, last = data["uid"], data["last"]

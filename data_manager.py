@@ -2,8 +2,8 @@
 
 import json
 import os
-import logging
 from typing import Dict, List, Any, Optional
+from astrbot.api import logger
 
 # 从 main.py 移动过来的常量
 DATA_PATH = "data/astrbot_plugin_bilibili.json"
@@ -11,7 +11,6 @@ DEFAULT_CFG = {
     "bili_sub_list": {}  # sub_user -> [{"uid": "uid", "last": "last_dynamic_id", ...}]
 }
 
-logger = logging.getLogger("astrbot")
 
 class DataManager:
     """
@@ -84,6 +83,8 @@ class DataManager:
             sub["filter_types"] = filter_types
             sub["filter_regex"] = filter_regex
             await self.save()
+            return True
+        return False
 
     async def update_last_dynamic_id(self, sub_user: str, uid: int, dyn_id: str):
         """
@@ -92,6 +93,15 @@ class DataManager:
         sub = self.get_subscription(sub_user, uid)
         if sub:
             sub["last"] = dyn_id
+            await self.save()
+    
+    async def update_live_status(self, sub_user: str, uid: int, is_live: bool):
+        """
+        更新特定订阅的直播状态。
+        """
+        sub = self.get_subscription(sub_user, uid)
+        if sub:
+            sub["is_live"] = is_live
             await self.save()
             
     async def remove_subscription(self, sub_user: str, uid: int) -> bool:
