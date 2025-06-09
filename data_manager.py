@@ -16,6 +16,7 @@ class DataManager:
     """
     负责管理插件的订阅数据，包括加载、保存和修改。
     """
+
     def __init__(self, path: str = DATA_PATH):
         self.path = path
         self.data = self._load_data()
@@ -31,7 +32,7 @@ class DataManager:
             with open(self.path, "w", encoding="utf-8-sig") as f:
                 json.dump(DEFAULT_CFG, f, ensure_ascii=False, indent=4)
             return DEFAULT_CFG
-        
+
         with open(self.path, "r", encoding="utf-8-sig") as f:
             return json.load(f)
 
@@ -45,7 +46,9 @@ class DataManager:
         """
         return self.data.get("bili_sub_list", {})
 
-    def get_subscriptions_by_user(self, sub_user: str) -> Optional[List[Dict[str, Any]]]:
+    def get_subscriptions_by_user(
+        self, sub_user: str
+    ) -> Optional[List[Dict[str, Any]]]:
         """
         根据 sub_user 获取其订阅的UP主列表。
         sub_user: 订阅用户的唯一标识, 形如 "aipcqhttp:GroupMessage:123456"
@@ -70,11 +73,13 @@ class DataManager:
         all_subs = self.get_all_subscriptions()
         if sub_user not in all_subs:
             all_subs[sub_user] = []
-        
+
         all_subs[sub_user].append(sub_data)
         await self.save()
 
-    async def update_subscription(self, sub_user: str, uid: int, filter_types: List[str], filter_regex: List[str]):
+    async def update_subscription(
+        self, sub_user: str, uid: int, filter_types: List[str], filter_regex: List[str]
+    ):
         """
         更新一个已存在的订阅的过滤条件。
         """
@@ -94,7 +99,7 @@ class DataManager:
         if sub:
             sub["last"] = dyn_id
             await self.save()
-    
+
     async def update_live_status(self, sub_user: str, uid: int, is_live: bool):
         """
         更新特定订阅的直播状态。
@@ -103,7 +108,7 @@ class DataManager:
         if sub:
             sub["is_live"] = is_live
             await self.save()
-            
+
     async def remove_subscription(self, sub_user: str, uid: int) -> bool:
         """
         移除一条订阅。
@@ -117,7 +122,7 @@ class DataManager:
             if sub.get("uid") == uid:
                 sub_to_remove = sub
                 break
-        
+
         if sub_to_remove:
             user_subs.remove(sub_to_remove)
             # 如果该用户已无任何订阅，可以选择移除该用户键
@@ -125,7 +130,7 @@ class DataManager:
                 del self.data["bili_sub_list"][sub_user]
             await self.save()
             return True
-        
+
         return False
 
     async def remove_all_for_user(self, sid: str):
@@ -137,7 +142,7 @@ class DataManager:
             third = sub_user.split(":")[2]
             if third == str(sid) or sid == sub_user:
                 candidate.append(sub_user)
-        
+
         if not candidate:
             msg = "未找到订阅"
             return msg
@@ -147,6 +152,6 @@ class DataManager:
             await self.save()
             msg = f"删除 {sid} 订阅成功"
             return msg
-        
+
         msg = "找到多个订阅者: " + ", ".join(candidate)
         return msg

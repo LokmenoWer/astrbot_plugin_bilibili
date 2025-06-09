@@ -1,8 +1,7 @@
 import aiohttp
-from typing import Optional, Dict, Any
-from bilibili_api import user, Credential, video, bangumi
-from bilibili_api.bangumi import IndexFilter as IF
 from astrbot.api import logger
+from typing import Optional, Dict, Any
+from bilibili_api import user, Credential, video
 
 
 class BiliClient:
@@ -75,20 +74,6 @@ class BiliClient:
             else:
                 logger.error(f"获取用户信息失败 (UID: {uid}): {e}")
                 return None, f"获取 UP 主信息失败: {str(e)}"
-
-    async def get_bangumi_recommendations(
-        self, filters: bangumi.IndexFilterMeta
-    ) -> Optional[Dict[str, Any]]:
-        """
-        根据筛选条件获取番剧推荐。
-        """
-        try:
-            return await bangumi.get_index_info(
-                filters=filters, order=IF.Order.SCORE, sort=IF.Sort.DESC, pn=1, ps=5
-            )
-        except Exception as e:
-            logger.error(f"获取番剧推荐失败: {e}")
-            return None
 
     async def b23_to_bv(self, url: str) -> Optional[str]:
         """

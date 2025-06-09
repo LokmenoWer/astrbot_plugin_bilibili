@@ -1,12 +1,14 @@
-import asyncio
-from astrbot.api import logger
 import re
 import os
 import json
+import asyncio
 import traceback
-from astrbot.api.event import CommandResult, AstrMessageEvent, MessageChain
-from bilibili_api import bangumi
+from typing import List
+
+from astrbot.api.all import *
+from astrbot.api import logger
 from astrbot.api.message_components import Image, Plain
+from astrbot.api.event import CommandResult, AstrMessageEvent, MessageChain
 from astrbot.api.event.filter import (
     command,
     regex,
@@ -16,13 +18,13 @@ from astrbot.api.event.filter import (
     event_message_type,
     EventMessageType,
 )
+from bilibili_api import bangumi
 from bilibili_api.bangumi import IndexFilter as IF
-from .constant import category_mapping
-from astrbot.api.all import *
-from typing import List, Optional
-from .data_manager import DataManager
-from .bili_client import BiliClient
+
 from .utils import *
+from .bili_client import BiliClient
+from .data_manager import DataManager
+from .constant import category_mapping
 
 CURRENT_DIR = os.path.dirname(__file__)
 TEMPLATE_PATH = os.path.join(CURRENT_DIR, "template.html")
@@ -39,7 +41,6 @@ IMG_PATH = "data/temp.jpg"
 BV = r"(?:\?.*)?(?:https?:\/\/)?(?:www\.)?bilibili\.com\/video\/(BV[\w\d]+)\/?(?:\?.*)?|BV[\w\d]+"
 
 
-
 @register("astrbot_plugin_bilibili", "Soulter", "", "", "")
 class Main(Star):
     def __init__(self, context: Context, config: dict) -> None:
@@ -50,7 +51,7 @@ class Main(Star):
         self.interval_mins = float(self.cfg.get("interval_mins", 20))
         self.rai = self.cfg.get("rai", True)
         self.enable_parse_miniapp = self.cfg.get("enable_parse_miniapp", True)
-        
+
         self.data_manager = DataManager()
         self.bili_client = BiliClient(self.cfg.get("sessdata"))
 
@@ -89,7 +90,6 @@ class Main(Star):
 
         await message.send(MessageChain().file_image(IMG_PATH))
 
-
     @command("订阅动态")
     async def dynamic_sub(self, message: AstrMessageEvent):
         input_text = message.message_str.strip()
@@ -112,12 +112,13 @@ class Main(Star):
             return CommandResult().message("UID 格式错误")
 
         # 检查是否已经存在该订阅
-        if await self.data_manager.update_subscription(sub_user, int(uid), filter_types, filter_regex):
+        if await self.data_manager.update_subscription(
+            sub_user, int(uid), filter_types, filter_regex
+        ):
             # 如果已存在，更新其过滤条件
             return CommandResult().message("该动态已订阅，已更新过滤条件。")
         # 以下为新增订阅
 
-        # usr = await self.bili_client.get_user(int(uid))
         usr_info, msg = await self.bili_client.get_user_info(int(uid))
         if not usr_info:
             return CommandResult().message(msg)
@@ -133,7 +134,7 @@ class Main(Star):
         # 获取最新一条动态 (用于初始化 last_id)
         dyn_id = ""
         try:
-            dyn = await usr.get_dynamics_new()
+            dyn = await self.bili_client.get_latest_dynamics(int(uid))
             # 构造新的订阅数据结构
             _sub_data = {
                 "uid": int(uid),
@@ -146,7 +147,6 @@ class Main(Star):
             _sub_data["last"] = dyn_id  # 更新 last id
         except Exception as e:
             logger.error(f"获取 {name} 初始动态失败: {e}")
-
 
         # 保存配置
         await self.data_manager.add_subscription(sub_user, _sub_data)
@@ -209,7 +209,6 @@ class Main(Star):
         else:
             return CommandResult().message("未找到指定的订阅")
 
-
     @llm_tool("get_bangumi")
     async def get_bangumi(
         self,
@@ -271,9 +270,12 @@ class Main(Star):
                 for idx, uid_sub_data in enumerate(all_subs[sub_usr]):
                     # 遍历用户订阅的UP
                     try:
-                        usr = await self.bili_client.get_user(uid_sub_data["uid"])
-                        dyn = await usr.get_dynamics_new()
-                        lives = await usr.get_live_info()
+                        dyn = await self.bili_client.get_latest_dynamics(
+                            uid_sub_data["uid"]
+                        )
+                        lives = await self.bili_client.get_live_info(
+                            uid_sub_data["uid"]
+                        )
                         if dyn is not None:
                             # 获取最新一条动态
                             # dyn_id <-> last
@@ -307,10 +309,14 @@ class Main(Star):
                                         .message(ret["url"]),
                                     )
 
-                                await self.data_manager.update_last_dynamic_id(sub_usr, uid_sub_data["uid"], dyn_id)
+                                await self.data_manager.update_last_dynamic_id(
+                                    sub_usr, uid_sub_data["uid"], dyn_id
+                                )
                             elif dyn_id is not None:
                                 # 有新动态但被过滤，更新 last
-                                await self.data_manager.update_last_dynamic_id(sub_usr, uid_sub_data["uid"], dyn_id)
+                                await self.data_manager.update_last_dynamic_id(
+                                    sub_usr, uid_sub_data["uid"], dyn_id
+                                )
 
                         if lives is not None:
                             # 获取直播间情况
@@ -336,12 +342,16 @@ class Main(Star):
                                 render_data["text"] = (
                                     f"📣 你订阅的UP 「{user_name}」 开播了！"
                                 )
-                                await self.data_manager.update_live_status(sub_usr, uid_sub_data["uid"], True)
+                                await self.data_manager.update_live_status(
+                                    sub_usr, uid_sub_data["uid"], True
+                                )
                             if not live_room.get("liveStatus", "") and is_live:
                                 render_data["text"] = (
                                     f"📣 你订阅的UP 「{user_name}」 下播了！"
                                 )
-                                await self.data_manager.update_live_status(sub_usr, uid_sub_data["uid"], False)
+                                await self.data_manager.update_live_status(
+                                    sub_usr, uid_sub_data["uid"], False
+                                )
                             if render_data["text"]:
                                 render_data["qrcode"] = await create_qrcode(link)
                                 await self.render_dynamic(render_data)
@@ -368,7 +378,6 @@ class Main(Star):
 
         msg = await self.data_manager.remove_all_for_user(sid)
         yield message.plain_result(msg)
-
 
     @permission_type(PermissionType.ADMIN)
     @command("全局列表")
