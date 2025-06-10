@@ -1,8 +1,6 @@
 import re
-import os
 import json
 import asyncio
-import traceback
 from typing import List
 
 from astrbot.api.all import *
@@ -22,22 +20,13 @@ from bilibili_api import bangumi
 from bilibili_api.bangumi import IndexFilter as IF
 
 from .utils import *
+from .renderer import Renderer
 from .bili_client import BiliClient
+from .listener import DynamicListener
 from .data_manager import DataManager
 from .constant import category_mapping
 
-CURRENT_DIR = os.path.dirname(__file__)
-TEMPLATE_PATH = os.path.join(CURRENT_DIR, "template.html")
-LOGO_PATH = os.path.join(CURRENT_DIR, "Astrbot.png")
-with open(TEMPLATE_PATH, "r", encoding="utf-8") as file:
-    HTML_TEMPLATE = file.read()
-MAX_ATTEMPTS = 3
-RETRY_DELAY = 2
 VALID_FILTER_TYPES = {"forward", "lottery", "video"}
-DEFAULT_CFG = {
-    "bili_sub_list": {}  # sub_user -> [{"uid": "uid", "last": "last_dynamic_id"}]
-}
-IMG_PATH = "data/temp.jpg"
 BV = r"(?:\?.*)?(?:https?:\/\/)?(?:www\.)?bilibili\.com\/video\/(BV[\w\d]+)\/?(?:\?.*)?|BV[\w\d]+"
 
 
@@ -53,9 +42,18 @@ class Main(Star):
         self.enable_parse_miniapp = self.cfg.get("enable_parse_miniapp", True)
 
         self.data_manager = DataManager()
+        self.renderer = Renderer(self, self.rai)
         self.bili_client = BiliClient(self.cfg.get("sessdata"))
+        self.dynamic_listener = DynamicListener(
+            context=self.context,
+            data_manager=self.data_manager,
+            bili_client=self.bili_client,
+            renderer=self.renderer,
+            interval_mins=self.interval_mins,
+            rai=self.rai,
+        )
 
-        self.dynamic_listener_task = asyncio.create_task(self.dynamic_listener())
+        self.dynamic_listener_task = asyncio.create_task(self.dynamic_listener.start())
 
     @regex(BV)
     async def get_video_info(self, message: AstrMessageEvent):
@@ -86,9 +84,13 @@ class Main(Star):
         )
         render_data["image_urls"] = [info["pic"]]
 
-        await self.render_dynamic(render_data)
-
-        await message.send(MessageChain().file_image(IMG_PATH))
+        img_path = await self.renderer.render_dynamic(render_data)
+        if img_path:
+            await message.send(MessageChain().file_image(img_path))
+        else:
+            yield message.plain_result("渲染图片失败了 (´;ω;`)")
+            text = "\n".join(filter(None, render_data.get("text", "").split("\n")))
+            await message.send(MessageChain().message(text).url_image(info["pic"]))
 
     @command("订阅动态")
     async def dynamic_sub(self, message: AstrMessageEvent):
@@ -127,9 +129,6 @@ class Main(Star):
         name = usr_info["name"]
         sex = usr_info["sex"]
         avatar = usr_info["face"]
-        # pendant = usr_info["pendant"]["image"]
-        # sign = usr_info["sign"]
-        # title = usr_info["official"]["title"]
 
         # 获取最新一条动态 (用于初始化 last_id)
         dyn_id = ""
@@ -160,7 +159,6 @@ class Main(Star):
         render_data = await create_render_data()
         render_data["name"] = "AstrBot"
         render_data["avatar"] = await image_to_base64(LOGO_PATH)
-        # render_data["pendant"] = pendant
         render_data["text"] = (
             f"📣 订阅成功！<br>"
             f"UP 主: {name} | 性别: {sex}"
@@ -170,10 +168,15 @@ class Main(Star):
         render_data["url"] = f"https://space.bilibili.com/{mid}"
         render_data["qrcode"] = await create_qrcode(render_data["url"])
         if self.rai:
-            await self.render_dynamic(render_data)
-            await message.send(
-                MessageChain().file_image(IMG_PATH).message(render_data["url"])
-            )
+            img_path = await self.renderer.render_dynamic(render_data)
+            if img_path:
+                await message.send(
+                    MessageChain().file_image(img_path).message(render_data["url"])
+                )
+            else:
+                yield message.plain_result("渲染图片失败了 (´;ω;`)")
+                text = "\n".join(filter(None, render_data.get("text", "").split("\n")))
+                await message.send(MessageChain().message(text).url_image(avatar))
         else:
             chain = [
                 Plain(render_data["text"]),
@@ -258,115 +261,6 @@ class Main(Star):
         result += "请分点，贴心地回答。不要输出 markdown 格式。"
         return result
 
-    async def dynamic_listener(self):
-        while True:
-            await asyncio.sleep(60 * self.interval_mins)
-            if self.bili_client.credential is None:
-                logger.warning("bilibili sessdata 未设置，无法获取动态")
-                continue
-            all_subs = self.data_manager.get_all_subscriptions()
-            for sub_usr in all_subs:
-                # 遍历所有订阅的用户
-                for idx, uid_sub_data in enumerate(all_subs[sub_usr]):
-                    # 遍历用户订阅的UP
-                    try:
-                        dyn = await self.bili_client.get_latest_dynamics(
-                            uid_sub_data["uid"]
-                        )
-                        lives = await self.bili_client.get_live_info(
-                            uid_sub_data["uid"]
-                        )
-                        if dyn is not None:
-                            # 获取最新一条动态
-                            # dyn_id <-> last
-                            ret, dyn_id = await self.parse_last_dynamic(
-                                dyn, uid_sub_data
-                            )
-                            if ret:
-                                # 有新动态，在此决定是否渲染
-                                if not self.rai and (
-                                    ret["type"] == "DYNAMIC_TYPE_DRAW"
-                                    or ret["type"] == "DYNAMIC_TYPE_WORD"
-                                ):
-                                    name = ret["name"]
-                                    ls = [
-                                        Plain(
-                                            f"📣 UP 主 「{name}」 发布了新图文动态:\n"
-                                        )
-                                    ]
-                                    ls.append(Plain(ret["summary"]))
-                                    for pic in ret["image_urls"]:
-                                        ls.append(Image.fromURL(pic))
-                                    await self.context.send_message(
-                                        sub_usr, CommandResult(chain=ls).use_t2i(False)
-                                    )
-                                else:
-                                    await self.render_dynamic(ret)
-                                    await self.context.send_message(
-                                        sub_usr,
-                                        MessageChain()
-                                        .file_image(IMG_PATH)
-                                        .message(ret["url"]),
-                                    )
-
-                                await self.data_manager.update_last_dynamic_id(
-                                    sub_usr, uid_sub_data["uid"], dyn_id
-                                )
-                            elif dyn_id is not None:
-                                # 有新动态但被过滤，更新 last
-                                await self.data_manager.update_last_dynamic_id(
-                                    sub_usr, uid_sub_data["uid"], dyn_id
-                                )
-
-                        if lives is not None:
-                            # 获取直播间情况
-                            is_live = all_subs[sub_usr][idx].get("is_live", False)
-                            live_room = (
-                                lives.get("live_room", {})
-                                or lives.get("live_room:", {})
-                                or {}
-                            )
-                            live_name = live_room.get("title", "Unknown")
-                            user_name = lives["name"]
-                            cover_url = live_room.get("cover", "")
-                            link = live_room.get("url", "Unknown")
-
-                            render_data = await create_render_data()
-                            render_data["name"] = "AstrBot"
-                            render_data["avatar"] = await image_to_base64(LOGO_PATH)
-                            render_data["title"] = live_name
-                            render_data["url"] = link
-                            render_data["image_urls"] = [cover_url]
-
-                            if live_room.get("liveStatus", "") and not is_live:
-                                render_data["text"] = (
-                                    f"📣 你订阅的UP 「{user_name}」 开播了！"
-                                )
-                                await self.data_manager.update_live_status(
-                                    sub_usr, uid_sub_data["uid"], True
-                                )
-                            if not live_room.get("liveStatus", "") and is_live:
-                                render_data["text"] = (
-                                    f"📣 你订阅的UP 「{user_name}」 下播了！"
-                                )
-                                await self.data_manager.update_live_status(
-                                    sub_usr, uid_sub_data["uid"], False
-                                )
-                            if render_data["text"]:
-                                render_data["qrcode"] = await create_qrcode(link)
-                                await self.render_dynamic(render_data)
-                                await self.context.send_message(
-                                    sub_usr,
-                                    MessageChain()
-                                    .file_image(IMG_PATH)
-                                    .message(render_data["url"]),
-                                )
-
-                    except Exception as e:
-                        logger.error(
-                            f"处理订阅者 {sub_usr} 的 UP主 {uid_sub_data.get('uid', '未知UID')} 时发生错误: {e}\n{traceback.format_exc()}"
-                        )
-
     @permission_type(PermissionType.ADMIN)
     @command("全局删除")
     async def global_sub_del(self, message: AstrMessageEvent, sid: str = None):
@@ -391,102 +285,6 @@ class Main(Star):
         for sub_user in all_subs:
             ret += f"- {sub_user}\n"
         return CommandResult().message(ret)
-
-    async def parse_last_dynamic(self, dyn: dict, data: dict):
-        uid, last = data["uid"], data["last"]
-        filter_types = data.get("filter_types", [])
-        filter_regex = data.get("filter_regex", [])
-        items = dyn["items"]
-
-        for item in items:
-            if "modules" not in item:
-                continue
-            # 过滤置顶
-            if (
-                "module_tag" in item["modules"]
-                and "text" in item["modules"]["module_tag"]
-                and item["modules"]["module_tag"]["text"] == "置顶"
-            ):
-                continue
-
-            if item["id_str"] == last:
-                # 无新动态
-                return None, None
-
-            dyn_id = item["id_str"]
-            # type_debug = item["type"]
-            # logger.info(f"id: {dyn_id}, type: {type_debug}")
-            # 转发类型
-            if item["type"] == "DYNAMIC_TYPE_FORWARD":
-                if "forward" in filter_types:
-                    logger.info(f"转发类型在过滤列表 {filter_types} 中。")
-                    return None, dyn_id  # 返回 None 表示不推送，但更新 dyn_id
-                try:
-                    content_text = item["modules"]["module_dynamic"]["desc"]["text"]
-                except (TypeError, KeyError):
-                    content_text = None
-                if content_text and filter_regex:
-                    for regex_pattern in filter_regex:
-                        try:
-                            if re.search(regex_pattern, content_text):
-                                logger.info(f"转发内容匹配正则 {regex_pattern}。")
-                                return None, dyn_id
-                        except re.error as e:
-                            continue
-                render_data = await create_render_data()
-                render_data = await self.build_render(item, render_data)
-                render_data["url"] = f"https://t.bilibili.com/{dyn_id}"
-                render_data["qrcode"] = await create_qrcode(render_data["url"])
-
-                render_forward = await create_render_data()
-                render_forward = await self.build_render(
-                    item["orig"], render_forward, is_forward=True
-                )
-                if render_forward["image_urls"]:  # 检查列表是否非空
-                    render_forward["image_urls"] = [
-                        render_forward["image_urls"][0]
-                    ]  # 保留第一项
-                render_data["forward"] = render_forward
-                return render_data, dyn_id
-            elif (
-                item["type"] == "DYNAMIC_TYPE_DRAW"
-                or item["type"] == "DYNAMIC_TYPE_WORD"
-            ):
-                # 图文类型过滤
-                opus = item["modules"]["module_dynamic"]["major"]["opus"]
-                summary_text = opus["summary"]["text"]
-
-                if (
-                    opus["summary"]["rich_text_nodes"][0].get("text") == "互动抽奖"
-                    and "lottery" in filter_types
-                ):
-                    logger.info(f"互动抽奖在过滤列表 {filter_types} 中。")
-                    return None, dyn_id
-                if filter_regex:  # 检查列表是否存在且不为空
-                    for regex_pattern in filter_regex:
-                        try:
-                            if re.search(regex_pattern, summary_text):
-                                logger.info(
-                                    f"图文动态 {dyn_id} 的 summary 匹配正则 '{regex_pattern}'。"
-                                )
-                                return None, dyn_id  # 匹配到任意一个正则就返回
-                        except re.error as e:
-                            continue  # 如果正则表达式本身有误，跳过这个正则继续检查下一个
-                render_data = await create_render_data()
-                render_data = await self.build_render(item, render_data)
-                return render_data, dyn_id
-            elif item["type"] == "DYNAMIC_TYPE_AV":
-                # 视频类型过滤
-                if "video" in filter_types:
-                    logger.info(f"视频类型在过滤列表 {filter_types} 中。")
-                    return None, dyn_id
-                render_data = await create_render_data()
-                render_data = await self.build_render(item, render_data)
-                return render_data, dyn_id
-            else:
-                return None, None
-
-        return None, None
 
     @event_message_type(EventMessageType.ALL)
     async def parse_miniapp(self, event: AstrMessageEvent):
@@ -513,100 +311,13 @@ class Main(Star):
 
                         if title == "哔哩哔哩" and qqdocurl:
                             if "https://b23.tv" in qqdocurl:
-                                qqdocurl = await b23_to_bv(qqdocurl)
+                                qqdocurl = await self.bili_client.b23_to_bv(qqdocurl)
                             ret = f"视频: {desc}\n链接: {qqdocurl}"
                             yield event.plain_result(ret)
                     except json.JSONDecodeError:
                         logger.error(f"Failed to decode JSON string: {json_string}")
                     except Exception as e:
                         logger.error(f"An error occurred during JSON processing: {e}")
-
-    async def render_dynamic(self, render_data: dict):
-        for attempt in range(1, MAX_ATTEMPTS + 1):
-            try:
-                src = await self.html_render(HTML_TEMPLATE, render_data, False)
-                if src and os.path.exists(src) and os.path.getsize(src) > 0:
-                    await get_and_crop_image(src, IMG_PATH)
-                    break
-            except Exception as e:
-                logger.error(f"Attempt: {attempt}: 渲染图片失败: {e}")
-            finally:
-                if os.path.exists(src):
-                    os.remove(src)
-            if attempt < MAX_ATTEMPTS:
-                await asyncio.sleep(RETRY_DELAY)
-
-    async def build_render(self, item, render_data, is_forward=False):
-        # 用户名称
-        name = item["modules"]["module_author"]["name"]
-        avatar = item["modules"]["module_author"].get("face")
-
-        render_data["name"] = name
-        render_data["avatar"] = avatar
-        render_data["pendant"] = item["modules"]["module_author"]["pendant"]["image"]
-        render_data["type"] = item["type"]
-
-        # 视频
-        if item["type"] == "DYNAMIC_TYPE_AV":
-            archive = item["modules"]["module_dynamic"]["major"]["archive"]
-            title = archive["title"]
-            bv = archive["bvid"]
-            cover_url = archive["cover"]
-
-            try:
-                content_text = item["modules"]["module_dynamic"]["desc"]["text"]
-            except (TypeError, KeyError):
-                content_text = None  # 或默认值
-
-            if content_text:
-                rich_text = await parse_rich_text(
-                    item["modules"]["module_dynamic"]["desc"],
-                    item["modules"]["module_dynamic"]["topic"],
-                )
-                render_data["text"] = f"投稿了新视频<br>{rich_text}"
-            else:
-                render_data["text"] = f"投稿了新视频<br>"
-            render_data["title"] = title
-            render_data["image_urls"] = [cover_url]
-            if not is_forward:
-                url = f"https://www.bilibili.com/video/{bv}"
-                render_data["qrcode"] = await create_qrcode(url)
-                render_data["url"] = url
-            # logger.info(f"返回视频动态 {dyn_id}。")
-            return render_data
-        # 图文
-        elif item["type"] == "DYNAMIC_TYPE_DRAW" or item["type"] == "DYNAMIC_TYPE_WORD":
-            opus = item["modules"]["module_dynamic"]["major"]["opus"]
-            summary = opus["summary"]
-            jump_url = opus["jump_url"]
-            topic = item["modules"]["module_dynamic"]["topic"]
-
-            render_data["summary"] = summary["text"]
-            render_data["text"] = await parse_rich_text(summary, topic)
-            render_data["title"] = opus["title"]
-            render_data["image_urls"] = [pic["url"] for pic in opus["pics"][:9]]
-            if not render_data["image_urls"] and self.rai:
-                render_data["image_urls"] = [await image_to_base64(LOGO_PATH)]
-            if not is_forward:
-                url = f"https:{jump_url}"
-                render_data["qrcode"] = await create_qrcode(url)
-                render_data["url"] = url
-            # logger.info(f"返回图文动态 {dyn_id}。")
-            return render_data
-        # 转发类型主体部分
-        elif item["type"] == "DYNAMIC_TYPE_FORWARD":
-            try:
-                content_text = item["modules"]["module_dynamic"]["desc"]["text"]
-            except (TypeError, KeyError):
-                content_text = None
-            if content_text:
-                rich_text = await parse_rich_text(
-                    item["modules"]["module_dynamic"]["desc"],
-                    item["modules"]["module_dynamic"]["topic"],
-                )
-                render_data["text"] = f"{rich_text}"
-            return render_data
-        return render_data
 
     async def terminate(self):
         if self.dynamic_listener_task and not self.dynamic_listener_task.done():

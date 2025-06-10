@@ -1,11 +1,8 @@
-# astrbot_plugin_bilibili/data_manager.py
-
 import json
 import os
 from typing import Dict, List, Any, Optional
 from astrbot.api import logger
 
-# 从 main.py 移动过来的常量
 DATA_PATH = "data/astrbot_plugin_bilibili.json"
 DEFAULT_CFG = {
     "bili_sub_list": {}  # sub_user -> [{"uid": "uid", "last": "last_dynamic_id", ...}]
