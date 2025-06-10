@@ -4,16 +4,10 @@ from .utils import *
 from typing import Dict, Any
 from astrbot.api import logger
 from astrbot.api.all import Star
+from .constant import TEMPLATE_PATH, LOGO_PATH, IMG_PATH, MAX_ATTEMPTS, RETRY_DELAY
 
-CURRENT_DIR = os.path.dirname(__file__)
-TEMPLATE_PATH = os.path.join(CURRENT_DIR, "template.html")
-LOGO_PATH = os.path.join(CURRENT_DIR, "Astrbot.png")
 with open(TEMPLATE_PATH, "r", encoding="utf-8") as file:
     HTML_TEMPLATE = file.read()
-
-IMG_PATH = "data/temp.jpg"
-MAX_ATTEMPTS = 3
-RETRY_DELAY = 2
 
 
 class Renderer:

@@ -2,11 +2,7 @@ import json
 import os
 from typing import Dict, List, Any, Optional
 from astrbot.api import logger
-
-DATA_PATH = "data/astrbot_plugin_bilibili.json"
-DEFAULT_CFG = {
-    "bili_sub_list": {}  # sub_user -> [{"uid": "uid", "last": "last_dynamic_id", ...}]
-}
+from .constant import DATA_PATH, DEFAULT_CFG
 
 
 class DataManager:

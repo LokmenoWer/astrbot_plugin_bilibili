@@ -2,14 +2,15 @@ import re
 import asyncio
 import traceback
 from typing import Dict, Any, Tuple
-from astrbot.api import logger, Context
+from astrbot.api import logger
 from astrbot.api.message_components import Image, Plain
-from astrbot.api.event import CommandResult, MessageChain
-
+from astrbot.api.event import MessageEventResult, MessageChain
+from astrbot.api.all import *
 from .data_manager import DataManager
 from .bili_client import BiliClient
 from .renderer import Renderer
 from .utils import *
+from .constant import LOGO_PATH
 
 
 class DynamicListener:
@@ -87,7 +88,7 @@ class DynamicListener:
             for pic in render_data.get("image_urls", []):
                 ls.append(Image.fromURL(pic))
             await self.context.send_message(
-                sub_user, CommandResult(chain=ls).use_t2i(False)
+                sub_user, MessageEventResult(chain=ls).use_t2i(False)
             )
         # 默认渲染成图片
         else:

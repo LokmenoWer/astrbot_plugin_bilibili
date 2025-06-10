@@ -6,7 +6,6 @@ import io
 import base64
 import os
 from urllib.parse import urlparse
-from astrbot.api import logger
 
 
 async def create_render_data() -> dict:

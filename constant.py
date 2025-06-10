@@ -1,3 +1,18 @@
+import os
+
+CURRENT_DIR = os.path.dirname(__file__)
+LOGO_PATH = os.path.join(CURRENT_DIR, "Astrbot.png")
+BV = r"(?:\?.*)?(?:https?:\/\/)?(?:www\.)?bilibili\.com\/video\/(BV[\w\d]+)\/?(?:\?.*)?|BV[\w\d]+"
+VALID_FILTER_TYPES = {"forward", "lottery", "video"}
+DATA_PATH = "data/astrbot_plugin_bilibili.json"
+DEFAULT_CFG = {
+    "bili_sub_list": {}  # sub_user -> [{"uid": "uid", "last": "last_dynamic_id", ...}]
+}
+TEMPLATE_PATH = os.path.join(CURRENT_DIR, "template.html")
+IMG_PATH = "data/temp.jpg"
+MAX_ATTEMPTS = 3
+RETRY_DELAY = 2
+
 category_mapping = {
     "全部": "ALL",
     "原创": "ORIGINAL",
