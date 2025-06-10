@@ -141,7 +141,7 @@ class Main(Star):
                 "filter_types": filter_types,
                 "filter_regex": filter_regex,
             }
-            _, dyn_id = await self.parse_last_dynamic(dyn, _sub_data)
+            _, dyn_id = await self.dynamic_listener._parse_and_filter_dynamics(dyn, _sub_data)
             _sub_data["last"] = dyn_id  # 更新 last id
         except Exception as e:
             logger.error(f"获取 {name} 初始动态失败: {e}")
@@ -312,6 +312,15 @@ class Main(Star):
                             if "https://b23.tv" in qqdocurl:
                                 qqdocurl = await self.bili_client.b23_to_bv(qqdocurl)
                             ret = f"视频: {desc}\n链接: {qqdocurl}"
+                            await event.send(MessageChain().message(ret))
+                        news = meta.get("news", {})
+                        tag = news.get("tag","")
+                        jumpurl = news.get("jumpUrl","")
+                        title = news.get("title","")
+                        if tag == "哔哩哔哩" and jumpurl:
+                            if "https://b23.tv" in jumpurl:
+                                jumpurl = await self.bili_client.b23_to_bv(jumpurl)
+                            ret = f"视频: {title}\n链接: {jumpurl}"
                             await event.send(MessageChain().message(ret))
                     except json.JSONDecodeError:
                         logger.error(f"Failed to decode JSON string: {json_string}")

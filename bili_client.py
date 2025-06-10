@@ -1,6 +1,6 @@
 import aiohttp
 from astrbot.api import logger
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from bilibili_api import user, Credential, video
 
 
@@ -60,13 +60,14 @@ class BiliClient:
             logger.error(f"获取直播间信息失败 (UID: {uid}): {e}")
             return None
 
-    async def get_user_info(self, uid: int) -> Optional[Dict[str, Any]]:
+    async def get_user_info(self, uid: int) -> Optional[Tuple[Dict[str, Any], str]]:
         """
         获取用户的基本信息。
         """
         try:
             u = await self.get_user(uid)
-            return await u.get_user_info()
+            info = await u.get_user_info()
+            return info, ""
         except Exception as e:
             if "code" in e.args[0] and e.args[0]["code"] == -404:
                 logger.warning(f"无法找到用户 (UID: {uid})")
