@@ -1,12 +1,12 @@
-import asyncio
-import logging
 import re
-import os
 import json
-import traceback
-from astrbot.api.event import CommandResult, AstrMessageEvent, MessageChain
-from bilibili_api import user, Credential, video, bangumi
+import asyncio
+from typing import List
+
+from astrbot.api.all import *
+from astrbot.api import logger
 from astrbot.api.message_components import Image, Plain
+from astrbot.api.event import MessageEventResult, AstrMessageEvent, MessageChain
 from astrbot.api.event.filter import (
     command,
     regex,
@@ -14,30 +14,17 @@ from astrbot.api.event.filter import (
     permission_type,
     PermissionType,
     event_message_type,
-    EventMessageType
+    EventMessageType,
 )
+from bilibili_api import bangumi
 from bilibili_api.bangumi import IndexFilter as IF
-from .constant import category_mapping
-from astrbot.api.all import *
-from typing import List, Optional
-import PIL
-from .utils import *
 
-CURRENT_DIR = os.path.dirname(__file__)
-TEMPLATE_PATH = os.path.join(CURRENT_DIR, "template.html")
-LOGO_PATH = os.path.join(CURRENT_DIR, "Astrbot.png")
-with open(TEMPLATE_PATH, "r", encoding="utf-8") as file:
-    HTML_TEMPLATE = file.read()
-MAX_ATTEMPTS = 3
-RETRY_DELAY = 2
-VALID_FILTER_TYPES = {"forward", "lottery", "video"}
-DEFAULT_CFG = {
-    "bili_sub_list": {}  # sub_user -> [{"uid": "uid", "last": "last_dynamic_id"}]
-}
-DATA_PATH = "data/astrbot_plugin_bilibili_test.json"
-IMG_PATH = "data/temp.jpg"
-BV = r"(?:\?.*)?(?:https?:\/\/)?(?:www\.)?bilibili\.com\/video\/(BV[\w\d]+)\/?(?:\?.*)?|BV[\w\d]+"
-logger = logging.getLogger("astrbot")
+from .utils import *
+from .renderer import Renderer
+from .bili_client import BiliClient
+from .listener import DynamicListener
+from .data_manager import DataManager
+from .constant import category_mapping, VALID_FILTER_TYPES, BV, LOGO_PATH
 
 
 @register("astrbot_plugin_bilibili", "Soulter", "", "", "")
@@ -45,38 +32,41 @@ class Main(Star):
     def __init__(self, context: Context, config: dict) -> None:
         super().__init__(context)
         self.cfg = config
-        self.credential = None
-        if not self.cfg["sessdata"]:
-            logger.error(
-                "bilibili 插件检测到没有设置 sessdata，请设置 bilibili sessdata。"
-            )
-        else:
-            self.credential = Credential(self.cfg["sessdata"])
-        self.interval_mins = float(self.cfg.get("interval_mins", 20))
-
         self.context = context
-        self.rai = self.cfg.get("rai", True)
 
-        if not os.path.exists(DATA_PATH):
-            with open(DATA_PATH, "w", encoding="utf-8-sig") as f:
-                f.write(json.dumps(DEFAULT_CFG, ensure_ascii=False, indent=4))
-        with open(DATA_PATH, "r", encoding="utf-8-sig") as f:
-            self.data = json.load(f)
-        asyncio.create_task(self.dynamic_listener())
+        self.interval_mins = float(self.cfg.get("interval_mins", 20))
+        self.rai = self.cfg.get("rai", True)
+        self.enable_parse_miniapp = self.cfg.get("enable_parse_miniapp", True)
+
+        self.data_manager = DataManager()
+        self.renderer = Renderer(self, self.rai)
+        self.bili_client = BiliClient(self.cfg.get("sessdata"))
+        self.dynamic_listener = DynamicListener(
+            context=self.context,
+            data_manager=self.data_manager,
+            bili_client=self.bili_client,
+            renderer=self.renderer,
+            interval_mins=self.interval_mins,
+            rai=self.rai,
+        )
+
+        self.dynamic_listener_task = asyncio.create_task(self.dynamic_listener.start())
 
     @regex(BV)
-    async def get_video_info(self, message: AstrMessageEvent):
-        if len(message.message_str) == 12:
-            bvid = message.message_str
+    async def get_video_info(self, event: AstrMessageEvent):
+        if len(event.message_str) == 12:
+            bvid = event.message_str
         else:
-            match_ = re.search(BV, message.message_str, re.IGNORECASE)
+            match_ = re.search(BV, event.message_str, re.IGNORECASE)
             if not match_:
                 return
             bvid = "BV" + match_.group(1)[2:]
 
-        v = video.Video(bvid=bvid)
-        info = await v.get_info()
-        online = await v.get_online()
+        video_data = await self.bili_client.get_video_info(bvid=bvid)
+        if not video_data:
+            return await event.send("获取视频信息失败了 (´;ω;`)")
+        info = video_data["info"]
+        online = video_data["online"]
 
         render_data = await create_render_data()
         render_data["name"] = "AstrBot"
@@ -91,17 +81,19 @@ class Main(Star):
         )
         render_data["image_urls"] = [info["pic"]]
 
-        await self.render_dynamic(render_data)
-
-        await message.send(MessageChain().file_image(IMG_PATH))
-
-    async def save_cfg(self):
-        with open(DATA_PATH, "w", encoding="utf-8") as f:
-            f.write(json.dumps(self.data, ensure_ascii=False, indent=2))
+        img_path = await self.renderer.render_dynamic(render_data)
+        if img_path:
+            await event.send(MessageChain().file_image(img_path))
+        else:
+            msg = "渲染图片失败了 (´;ω;`)"
+            text = "\n".join(filter(None, render_data.get("text", "").split("<br>")))
+            await event.send(
+                MessageChain().message(msg).message(text).url_image(info["pic"])
+            )
 
     @command("订阅动态")
-    async def dynamic_sub(self, message: AstrMessageEvent):
-        input_text = message.message_str.strip()
+    async def dynamic_sub(self, event: AstrMessageEvent):
+        input_text = event.message_str.strip()
         if "订阅动态" in input_text:
             input_text = input_text.replace("订阅动态", "", 1).strip()
         args = input_text.split(" ")
@@ -116,42 +108,31 @@ class Main(Star):
             else:
                 filter_regex.append(arg)
 
-        sub_user = message.unified_msg_origin
+        sub_user = event.unified_msg_origin
         if not uid.isdigit():
-            return CommandResult().message("UID 格式错误")
+            return MessageEventResult().message("UID 格式错误")
 
         # 检查是否已经存在该订阅
-        if sub_user in self.data["bili_sub_list"] and any(
-            sub["uid"] == int(uid) for sub in self.data["bili_sub_list"][sub_user]
+        if await self.data_manager.update_subscription(
+            sub_user, int(uid), filter_types, filter_regex
         ):
-            # 如果已存在，可以选择更新其过滤条件，或者提示用户先删除再添加
-            return CommandResult().message(
-                "该动态已订阅，如需修改过滤条件请先删除再重新订阅。"
-            )  # 简化处理，也可以实现更新逻辑
+            # 如果已存在，更新其过滤条件
+            return MessageEventResult().message("该动态已订阅，已更新过滤条件。")
+        # 以下为新增订阅
 
-        usr = user.User(int(uid), credential=self.credential)
-
-        try:
-            usr_info = await usr.get_user_info()
-        except Exception as e:
-            if "code" in e.args[0] and e.args[0]["code"] == -404:
-                return CommandResult().message("啥都木有 (´;ω;`)")
-            else:
-                logger.error(traceback.format_exc())
-                return CommandResult().message(f"获取 UP 主信息失败: {str(e)}")
+        usr_info, msg = await self.bili_client.get_user_info(int(uid))
+        if not usr_info:
+            return MessageEventResult().message(msg)
 
         mid = usr_info["mid"]
         name = usr_info["name"]
         sex = usr_info["sex"]
         avatar = usr_info["face"]
-        # pendant = usr_info["pendant"]["image"]
-        # sign = usr_info["sign"]
-        # title = usr_info["official"]["title"]
 
         # 获取最新一条动态 (用于初始化 last_id)
         dyn_id = ""
         try:
-            dyn = await usr.get_dynamics_new()
+            dyn = await self.bili_client.get_latest_dynamics(int(uid))
             # 构造新的订阅数据结构
             _sub_data = {
                 "uid": int(uid),
@@ -160,17 +141,13 @@ class Main(Star):
                 "filter_types": filter_types,
                 "filter_regex": filter_regex,
             }
-            _, dyn_id = await self.parse_last_dynamic(dyn, _sub_data)
+            _, dyn_id = await self.dynamic_listener._parse_and_filter_dynamics(dyn, _sub_data)
             _sub_data["last"] = dyn_id  # 更新 last id
         except Exception as e:
             logger.error(f"获取 {name} 初始动态失败: {e}")
 
         # 保存配置
-        if sub_user in self.data["bili_sub_list"]:
-            self.data["bili_sub_list"][sub_user].append(_sub_data)
-        else:
-            self.data["bili_sub_list"][sub_user] = [_sub_data]
-        await self.save_cfg()
+        await self.data_manager.add_subscription(sub_user, _sub_data)
 
         filter_desc = ""
         if filter_types:
@@ -181,7 +158,6 @@ class Main(Star):
         render_data = await create_render_data()
         render_data["name"] = "AstrBot"
         render_data["avatar"] = await image_to_base64(LOGO_PATH)
-        # render_data["pendant"] = pendant
         render_data["text"] = (
             f"📣 订阅成功！<br>"
             f"UP 主: {name} | 性别: {sex}"
@@ -190,48 +166,59 @@ class Main(Star):
         render_data["image_urls"] = [avatar]
         render_data["url"] = f"https://space.bilibili.com/{mid}"
         render_data["qrcode"] = await create_qrcode(render_data["url"])
-
-        await self.render_dynamic(render_data)
-
-        await message.send(
-            MessageChain().file_image(IMG_PATH).message(render_data["url"])
-        )
+        if self.rai:
+            img_path = await self.renderer.render_dynamic(render_data)
+            if img_path:
+                await event.send(
+                    MessageChain().file_image(img_path).message(render_data["url"])
+                )
+            else:
+                msg = "渲染图片失败了 (´;ω;`)"
+                text = "\n".join(
+                    filter(None, render_data.get("text", "").split("<br>"))
+                )
+                await event.send(
+                    MessageChain().message(msg).message(text).url_image(avatar)
+                )
+        else:
+            chain = [
+                Plain(render_data["text"]),
+                Image.fromURL(avatar),
+            ]
+            return MessageEventResult(chain=chain, use_t2i_=False)
 
     @command("订阅列表")
-    async def sub_list(self, message: AstrMessageEvent):
+    async def sub_list(self, event: AstrMessageEvent):
         """查看 bilibili 动态监控列表"""
-        sub_user = message.unified_msg_origin
+        sub_user = event.unified_msg_origin
         ret = """订阅列表：\n"""
-        if sub_user in self.data["bili_sub_list"]:
-            for idx, uid_sub_data in enumerate(self.data["bili_sub_list"][sub_user]):
-                ret += f"{idx + 1}. {uid_sub_data['uid']}\n"
-            return CommandResult().message(ret)
+        subs = self.data_manager.get_subscriptions_by_user(sub_user)
+
+        if not subs:
+            return MessageEventResult().message("无订阅")
         else:
-            return CommandResult().message("无订阅")
+            for idx, uid_sub_data in enumerate(subs):
+                ret += f"{idx + 1}. {uid_sub_data['uid']}\n"
+            return MessageEventResult().message(ret)
 
     @command("订阅删除")
-    async def sub_del(self, message: AstrMessageEvent, uid: str):
+    async def sub_del(self, event: AstrMessageEvent, uid: str):
         """删除 bilibili 动态监控"""
-        sub_user = message.unified_msg_origin
-        if sub_user in self.data["bili_sub_list"]:
-            if len(uid) < 1:
-                return CommandResult().message("参数数量不足。订阅动态 b站id")
+        sub_user = event.unified_msg_origin
+        if not uid or not uid.isdigit():
+            return MessageEventResult().message("参数错误，请提供正确的UID。")
 
-            uid = int(uid)
+        uid2del = int(uid)
 
-            for idx, uid_sub_data in enumerate(self.data["bili_sub_list"][sub_user]):
-                if uid_sub_data["uid"] == uid:
-                    del self.data["bili_sub_list"][sub_user][idx]
-                    await self.save_cfg()
-                    return CommandResult().message("删除成功")
-            return CommandResult().message("未找到指定的订阅")
+        if await self.data_manager.remove_subscription(sub_user, uid2del):
+            return MessageEventResult().message("删除成功")
         else:
-            return CommandResult().message("您还没有订阅哦！")
+            return MessageEventResult().message("未找到指定的订阅")
 
     @llm_tool("get_bangumi")
     async def get_bangumi(
         self,
-        message: AstrMessageEvent,
+        event: AstrMessageEvent,
         style: str = "ALL",
         season: str = "ALL",
         start_year: int = None,
@@ -277,342 +264,79 @@ class Main(Star):
         result += "请分点，贴心地回答。不要输出 markdown 格式。"
         return result
 
-    async def dynamic_listener(self):
-        while True:
-            await asyncio.sleep(60 * self.interval_mins)
-            if self.credential is None:
-                logger.warning("bilibili sessdata 未设置，无法获取动态")
-                continue
-            for sub_usr in self.data["bili_sub_list"]:
-                # 遍历所有订阅的用户
-                for idx, uid_sub_data in enumerate(self.data["bili_sub_list"][sub_usr]):
-                    # 遍历用户订阅的UP
-                    try:
-                        usr = user.User(uid_sub_data["uid"], credential=self.credential)
-                        dyn = await usr.get_dynamics_new()
-                        lives = await usr.get_live_info()
-                        if dyn is not None:
-                            # 获取最新一条动态
-                            # dyn_id <-> last
-                            ret, dyn_id = await self.parse_last_dynamic(
-                                dyn, uid_sub_data
-                            )
-                            if ret:
-                                await self.render_dynamic(ret)
-
-                                await self.context.send_message(
-                                    sub_usr,
-                                    MessageChain()
-                                    .file_image(IMG_PATH)
-                                    .message(ret["url"]),
-                                )
-                                self.data["bili_sub_list"][sub_usr][idx]["last"] = (
-                                    dyn_id
-                                )
-                                await self.save_cfg()
-                            elif dyn_id is not None:
-                                self.data["bili_sub_list"][sub_usr][idx]["last"] = (
-                                    dyn_id
-                                )
-                                await self.save_cfg()
-
-                        if lives is not None:
-                            # 获取直播间情况
-                            is_live = self.data["bili_sub_list"][sub_usr][idx].get(
-                                "is_live", False
-                            )
-                            live_room = (
-                                lives.get("live_room", {})
-                                or lives.get("live_room:", {})
-                                or {}
-                            )
-                            live_name = live_room.get("title", "Unknown")
-                            user_name = lives["name"]
-                            cover_url = live_room.get("cover", "")
-                            link = live_room.get("url", "Unknown")
-
-                            render_data = await create_render_data()
-                            render_data["name"] = "AstrBot"
-                            render_data["avatar"] = await image_to_base64(LOGO_PATH)
-                            render_data["title"] = live_name
-
-                            if live_room.get("liveStatus", "") and not is_live:
-                                render_data["text"] = (
-                                    f"📣 你订阅的UP 「{user_name}」 开播了！"
-                                )
-                                render_data["url"] = link
-                                render_data["image_urls"] = [cover_url]
-                                self.data["bili_sub_list"][sub_usr][idx]["is_live"] = (
-                                    True
-                                )
-                                await self.save_cfg()
-                            if not live_room.get("liveStatus", "") and is_live:
-                                render_data["text"] = (
-                                    f"📣 你订阅的UP 「{user_name}」 下播了！"
-                                )
-                                render_data["url"] = link
-                                render_data["image_urls"] = [cover_url]
-
-                                self.data["bili_sub_list"][sub_usr][idx]["is_live"] = (
-                                    False
-                                )
-                                await self.save_cfg()
-                            if render_data["text"]:
-                                render_data["qrcode"] = await create_qrcode(link)
-                                await self.render_dynamic(render_data)
-                                await self.context.send_message(
-                                    sub_usr,
-                                    MessageChain()
-                                    .file_image(IMG_PATH)
-                                    .message(render_data["url"]),
-                                )
-
-                    except Exception as e:
-                        # raise e
-                        logger.error(f"处理订阅者 {sub_usr} 的 UP主 {uid_sub_data.get('uid', '未知UID')} 时发生错误: {e}\n{traceback.format_exc()}")
-
     @permission_type(PermissionType.ADMIN)
     @command("全局删除")
-    async def global_sub(self, message: AstrMessageEvent, sid: str = None):
+    async def global_sub_del(self, event: AstrMessageEvent, sid: str = None):
         """管理员指令。通过 SID 删除某一个群聊或者私聊的所有订阅。使用 /sid 查看当前会话的 SID。"""
         if not sid:
-            return CommandResult().message(
+            return MessageEventResult().message(
                 "通过 SID 删除某一个群聊或者私聊的所有订阅。使用 /sid 指令查看当前会话的 SID。"
             )
 
-        candidate = []
-        for sub_user in self.data["bili_sub_list"]:
-            third = sub_user.split(":")[2]
-            if third == str(sid) or sid == sub_user:
-                candidate.append(sub_user)
-
-        if not candidate:
-            return CommandResult().message("未找到订阅")
-
-        if len(candidate) == 1:
-            self.data["bili_sub_list"].pop(candidate[0])
-            await self.save_cfg()
-            return CommandResult().message(f"删除 {sid} 订阅成功")
-
-        return CommandResult().message("找到多个订阅者: " + ", ".join(candidate))
+        msg = await self.data_manager.remove_all_for_user(sid)
+        return MessageEventResult().message(msg)
 
     @permission_type(PermissionType.ADMIN)
     @command("全局列表")
-    async def global_list(self, message: AstrMessageEvent):
+    async def global_list(self, event: AstrMessageEvent):
         """管理员指令。查看所有订阅者"""
         ret = "订阅会话列表：\n"
+        all_subs = self.data_manager.get_all_subscriptions()
+        if not all_subs:
+            return MessageEventResult().message("没有任何会话订阅过。")
 
-        if not self.data["bili_sub_list"]:
-            return CommandResult().message("没有任何会话订阅过。")
-
-        for sub_user in self.data["bili_sub_list"]:
+        for sub_user in all_subs:
             ret += f"- {sub_user}\n"
-        return CommandResult().message(ret)
+        return MessageEventResult().message(ret)
 
-    async def parse_last_dynamic(self, dyn: dict, data: dict):
-        uid, last = data["uid"], data["last"]
-        filter_types = data.get("filter_types", [])
-        filter_regex = data.get("filter_regex", [])
-        items = dyn["items"]
-
-        for item in items:
-            if "modules" not in item:
-                continue
-            # 过滤置顶
-            if (
-                "module_tag" in item["modules"]
-                and "text" in item["modules"]["module_tag"]
-                and item["modules"]["module_tag"]["text"] == "置顶"
-            ):
-                continue
-
-            if item["id_str"] == last:
-                # 无新动态
-                return None, None
-
-            dyn_id = item["id_str"]
-            type_debug = item["type"]
-            logger.info(f"type: {type_debug}")
-            # 转发类型
-            if item["type"] == "DYNAMIC_TYPE_FORWARD":
-                if "forward" in filter_types:
-                    logger.info(f"转发类型在过滤列表 {filter_types} 中。")
-                    return None, dyn_id  # 返回 None 表示不推送，但更新 dyn_id
-                try:
-                    content_text = item["modules"]["module_dynamic"]["desc"]["text"]
-                except (TypeError, KeyError):
-                    content_text = None
-                if content_text and filter_regex:
-                    for regex_pattern in filter_regex:
-                        try:
-                            if re.search(regex_pattern, content_text):
-                                logger.info(f"转发内容匹配正则 {regex_pattern}。")
-                                return None, dyn_id
-                        except re.error as e:
-                            continue
-                render_data = await create_render_data()
-                render_data = await self.build_render(item, render_data)
-                render_data["url"] = f"https://t.bilibili.com/{dyn_id}"
-                render_data["qrcode"] = await create_qrcode(render_data["url"])
-
-                render_forward = await create_render_data()
-                render_forward = await self.build_render(item["orig"], render_forward, is_forward=True)
-                if render_forward["image_urls"]:  # 检查列表是否非空
-                    render_forward["image_urls"] = [render_forward["image_urls"][0]]  # 保留第一项
-                render_data["forward"] = render_forward
-                return render_data, dyn_id
-            elif item["type"] == "DYNAMIC_TYPE_DRAW" or item["type"] == "DYNAMIC_TYPE_WORD":
-                # 图文类型过滤
-                opus = item["modules"]["module_dynamic"]["major"]["opus"]
-                summary_text = opus["summary"]["text"]
-
-                if (
-                    opus["summary"]["rich_text_nodes"][0].get("text") == "互动抽奖"
-                    and "lottery" in filter_types
-                ):
-                    logger.info(f"互动抽奖在过滤列表 {filter_types} 中。")
-                    return None, dyn_id
-                if filter_regex:  # 检查列表是否存在且不为空
-                    for regex_pattern in filter_regex:
-                        try:
-                            if re.search(regex_pattern, summary_text):
-                                logger.info(
-                                    f"图文动态 {dyn_id} 的 summary 匹配正则 '{regex_pattern}'。"
-                                )
-                                return None, dyn_id  # 匹配到任意一个正则就返回
-                        except re.error as e:
-                            continue  # 如果正则表达式本身有误，跳过这个正则继续检查下一个
-                render_data = await create_render_data()
-                render_data = await self.build_render(item, render_data) 
-                return render_data, dyn_id
-            elif item["type"] == "DYNAMIC_TYPE_AV":
-                # 视频类型过滤
-                if "video" in filter_types:
-                    logger.info(f"视频类型在过滤列表 {filter_types} 中。")
-                    return None, dyn_id
-                render_data = await create_render_data()
-                render_data = await self.build_render(item, render_data)
-                return render_data, dyn_id
-
-        return None, None
-        
     @event_message_type(EventMessageType.ALL)
     async def parse_miniapp(self, event: AstrMessageEvent):
-        if not event.message_obj.message:
-            logger.warning("Received an empty message list.")
-            return
+        if self.enable_parse_miniapp:
+            for msg_element in event.message_obj.message:
+                if (
+                    hasattr(msg_element, "type")
+                    and msg_element.type == "Json"
+                    and hasattr(msg_element, "data")
+                ):
+                    json_string = msg_element.data
 
-        for msg_element in event.message_obj.message:
-            if hasattr(msg_element, 'type') and msg_element.type == 'Json' and hasattr(msg_element, 'data'):
-                json_string = msg_element.data
+                    try:
+                        parsed_data = json.loads(json_string)
+                        meta = parsed_data.get("meta", {})
+                        detail_1 = meta.get("detail_1", {})
+                        title = detail_1.get("title")
+                        qqdocurl = detail_1.get("qqdocurl")
+                        desc = detail_1.get("desc")
 
-                try:
-                    parsed_data = json.loads(json_string)
-                    meta = parsed_data.get('meta', {})
-                    detail_1 = meta.get('detail_1', {})
-                    title = detail_1.get('title')
-                    qqdocurl = detail_1.get('qqdocurl')
-                    desc = detail_1.get('desc')
-                    
-                    if title == "哔哩哔哩" and qqdocurl:
-                        if 'https://b23.tv' in qqdocurl:
-                            qqdocurl = await b23_to_bv(qqdocurl)
-                        ret = (
-                            f"视频: {desc}\n"
-                            f"链接: {qqdocurl}"
-                        )
-                        yield event.plain_result(ret)
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to decode JSON string: {json_string}")
-                except Exception as e:
-                    logger.error(f"An error occurred during JSON processing: {e}")
-    
-    async def render_dynamic(self, render_data: dict):
-        for attempt in range(1, MAX_ATTEMPTS + 1):
+                        if title == "哔哩哔哩" and qqdocurl:
+                            if "https://b23.tv" in qqdocurl:
+                                qqdocurl = await self.bili_client.b23_to_bv(qqdocurl)
+                            ret = f"视频: {desc}\n链接: {qqdocurl}"
+                            await event.send(MessageChain().message(ret))
+                        news = meta.get("news", {})
+                        tag = news.get("tag","")
+                        jumpurl = news.get("jumpUrl","")
+                        title = news.get("title","")
+                        if tag == "哔哩哔哩" and jumpurl:
+                            if "https://b23.tv" in jumpurl:
+                                jumpurl = await self.bili_client.b23_to_bv(jumpurl)
+                            ret = f"视频: {title}\n链接: {jumpurl}"
+                            await event.send(MessageChain().message(ret))
+                    except json.JSONDecodeError:
+                        logger.error(f"Failed to decode JSON string: {json_string}")
+                    except Exception as e:
+                        logger.error(f"An error occurred during JSON processing: {e}")
+
+    async def terminate(self):
+        if self.dynamic_listener_task and not self.dynamic_listener_task.done():
+            self.dynamic_listener_task.cancel()
             try:
-                src = await self.html_render(HTML_TEMPLATE, render_data, False)
-                if src and os.path.exists(src) and os.path.getsize(src) > 0:
-                    await get_and_crop_image(src, IMG_PATH)
-                    break
+                await self.dynamic_listener_task
+            except asyncio.CancelledError:
+                logger.info(
+                    "bilibili dynamic_listener task was successfully cancelled during terminate."
+                )
             except Exception as e:
-                logger.error(f"Attempt: {attempt}: 渲染图片失败: {e}")
-            finally:
-                if os.path.exists(src):
-                    os.remove(src)
-            if attempt < MAX_ATTEMPTS:
-                await asyncio.sleep(RETRY_DELAY)
-    
-    async def build_render(self, item, render_data, is_forward=False):
-        # 用户名称
-        name = item["modules"]["module_author"]["name"]
-        avatar = item["modules"]["module_author"].get("face")
-
-        render_data["name"] = name
-        render_data["avatar"] = avatar
-        render_data["pendant"] = item["modules"]["module_author"]["pendant"][
-            "image"
-        ]
-        # 视频
-        if item["type"] == "DYNAMIC_TYPE_AV":
-            
-            archive = item["modules"]["module_dynamic"]["major"]["archive"]
-            title = archive["title"]
-            bv = archive["bvid"]
-            cover_url = archive["cover"]
-
-            try:
-                content_text = item["modules"]["module_dynamic"]["desc"]["text"]
-            except (TypeError, KeyError):
-                content_text = None  # 或默认值
-
-            if content_text:
-                rich_text = await parse_rich_text(
-                    item["modules"]["module_dynamic"]["desc"],
-                    item["modules"]["module_dynamic"]["topic"],
+                logger.error(
+                    f"Error awaiting cancellation of dynamic_listener task: {e}"
                 )
-                render_data["text"] = f"投稿了新视频<br>{rich_text}"
-            else:
-                render_data["text"] = f"投稿了新视频<br>"
-            render_data["title"] = title
-            render_data["image_urls"] = [cover_url]
-            if not is_forward:
-                url = f"https://www.bilibili.com/video/{bv}"
-                render_data["qrcode"] = await create_qrcode(url)
-                render_data["url"] = url
-            # logger.info(f"返回视频动态 {dyn_id}。")
-            return render_data
-        # 图文
-        elif (
-            item["type"] == "DYNAMIC_TYPE_DRAW"
-            or item["type"] == "DYNAMIC_TYPE_WORD"
-        ):
-            opus = item["modules"]["module_dynamic"]["major"]["opus"]
-            summary = opus["summary"]
-            jump_url = opus["jump_url"]
-            topic = item["modules"]["module_dynamic"]["topic"]
-
-            render_data["text"] = await parse_rich_text(summary, topic)
-            render_data["title"] = opus["title"]
-            render_data["image_urls"] = [pic["url"] for pic in opus["pics"][:9]]
-            if not render_data["image_urls"]:
-                render_data["image_urls"] = [await image_to_base64(LOGO_PATH)]
-            if not is_forward:
-                url = f"https:{jump_url}"
-                render_data["qrcode"] = await create_qrcode(url)
-                render_data["url"] = url
-            # logger.info(f"返回图文动态 {dyn_id}。")
-            return render_data
-        # 转发类型主体部分
-        elif item["type"] == "DYNAMIC_TYPE_FORWARD":
-            try:
-                content_text = item["modules"]["module_dynamic"]["desc"]["text"]
-            except (TypeError, KeyError):
-                content_text = None
-            if content_text:
-                rich_text = await parse_rich_text(
-                    item["modules"]["module_dynamic"]["desc"],
-                    item["modules"]["module_dynamic"]["topic"],
-                )
-                render_data["text"] = f"{rich_text}"
-            return render_data
-        return render_data
