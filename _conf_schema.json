@@ -23,5 +23,11 @@
         "type": "bool",
         "hint": "是否解析小程序",
         "default": true
+    },
+    "bili_t2i":{
+        "description": "bili_t2i",
+        "type": "string",
+        "hint": "用以提高清晰度上限。文转图服务url，为空则不应用此配置",
+        "default": ""
     }
 }
