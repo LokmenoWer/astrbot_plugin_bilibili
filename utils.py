@@ -15,6 +15,7 @@ from typing import Union
 import certifi
 from PIL import Image
 
+
 async def create_render_data() -> dict:
     return {
         "name": "",  # 图中header处用户名
@@ -118,8 +119,8 @@ async def parse_rich_text(summary, topic):
 
     return text
 
-async def bili_html_render(tmpl_str: str, tmpl_data: dict, api_url: str):
 
+async def bili_html_render(tmpl_str: str, tmpl_data: dict, api_url: str):
     post_data = {
         "tmpl": tmpl_str,
         "json": False,
@@ -133,6 +134,7 @@ async def bili_html_render(tmpl_str: str, tmpl_data: dict, api_url: str):
     url = f"{api_url}/generate"
     return await bili_download_image_by_url(url, post_data)
 
+
 async def bili_download_image_by_url(url: str, post_data: dict = None) -> str:
     """
     取自astrbot/core/utils/io.py
@@ -141,13 +143,17 @@ async def bili_download_image_by_url(url: str, post_data: dict = None) -> str:
         # 使用 certifi 提供的 CA 证书
         ssl_context = ssl.create_default_context(cafile=certifi.where())
         connector = aiohttp.TCPConnector(ssl=ssl_context)
-        async with aiohttp.ClientSession(trust_env=True, connector=connector) as session:
+        async with aiohttp.ClientSession(
+            trust_env=True, connector=connector
+        ) as session:
             async with session.post(url, json=post_data) as resp:
                 resp.raise_for_status()
                 return bili_save_temp_img(await resp.read())
 
     except (aiohttp.ClientConnectorSSLError, aiohttp.ClientConnectorCertificateError):
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+        async with aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(ssl=False)
+        ) as session:
             async with session.post(url, json=post_data) as resp:
                 resp.raise_for_status()
                 return bili_save_temp_img(await resp.read())
