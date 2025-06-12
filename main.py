@@ -201,7 +201,13 @@ class Main(Star):
             return MessageEventResult().message("无订阅")
         else:
             for idx, uid_sub_data in enumerate(subs):
-                ret += f"{idx + 1}. {uid_sub_data['uid']}\n"
+                uid = uid_sub_data['uid']
+                info, _ = await self.bili_client.get_user_info(int(uid))
+                if not info:
+                    ret += f"{idx + 1}. {uid} - 无法获取 UP 主信息\n"
+                else:
+                    name = info['name']
+                    ret += f"{idx + 1}. {uid} - {name}\n"
             return MessageEventResult().message(ret)
 
     @command("订阅删除")
