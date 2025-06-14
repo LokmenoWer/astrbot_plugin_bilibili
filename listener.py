@@ -173,7 +173,7 @@ class DynamicListener:
 
             dyn_id = item["id_str"]
             # 转发类型
-            if item["type"] == "DYNAMIC_TYPE_FORWARD":
+            if item.get("type") == "DYNAMIC_TYPE_FORWARD":
                 if "forward" in filter_types:
                     logger.info(f"转发类型在过滤列表 {filter_types} 中。")
                     return None, dyn_id  # 返回 None 表示不推送，但更新 dyn_id
@@ -202,10 +202,7 @@ class DynamicListener:
                     ]  # 保留第一项
                 render_data["forward"] = render_forward
                 return render_data, dyn_id
-            elif (
-                item["type"] == "DYNAMIC_TYPE_DRAW"
-                or item["type"] == "DYNAMIC_TYPE_WORD"
-            ):
+            elif item.get("type") in ("DYNAMIC_TYPE_DRAW", "DYNAMIC_TYPE_WORD"):
                 # 图文类型过滤
                 opus = item["modules"]["module_dynamic"]["major"]["opus"]
                 summary_text = opus["summary"]["text"]
@@ -228,10 +225,17 @@ class DynamicListener:
                             continue  # 如果正则表达式本身有误，跳过这个正则继续检查下一个
                 render_data = await self.renderer.build_render_data(item)
                 return render_data, dyn_id
-            elif item["type"] == "DYNAMIC_TYPE_AV":
+            elif item.get("type") == "DYNAMIC_TYPE_AV":
                 # 视频类型过滤
                 if "video" in filter_types:
                     logger.info(f"视频类型在过滤列表 {filter_types} 中。")
+                    return None, dyn_id
+                render_data = await self.renderer.build_render_data(item)
+                return render_data, dyn_id
+            elif item.get("type") == "DYNAMIC_TYPE_ARTICLE":
+                # 文章类型过滤
+                if "article" in filter_types:
+                    logger.info(f"文章类型在过滤列表 {filter_types} 中。")
                     return None, dyn_id
                 render_data = await self.renderer.build_render_data(item)
                 return render_data, dyn_id

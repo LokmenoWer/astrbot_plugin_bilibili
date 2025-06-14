@@ -53,6 +53,7 @@ plugin i https://github.com/Soulter/astrbot_plugin_bilibili
   - `forward`：过滤掉转发动态。
   - `lottery`：过滤掉互动抽奖动态。
   - `video`：过滤掉视频发布动态。
+  - `article`：过滤掉专栏动态。
   - **正则表达式**：任何不属于上述关键字的字符串都将被视为正则表达式，用于过滤动态文本内容。
 
 **示例**：
@@ -77,6 +78,7 @@ plugin i https://github.com/Soulter/astrbot_plugin_bilibili
 ### v1.4.10
 
 - 添加指令别名
+- 支持专栏类型
 
 ### v1.4.9
 

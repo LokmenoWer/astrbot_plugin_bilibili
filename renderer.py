@@ -102,7 +102,11 @@ class Renderer:
                 render_data["url"] = url
             # logger.info(f"返回视频动态 {dyn_id}。")
             return render_data
-        elif item.get("type") in ("DYNAMIC_TYPE_DRAW", "DYNAMIC_TYPE_WORD"):
+        elif item.get("type") in (
+            "DYNAMIC_TYPE_DRAW",
+            "DYNAMIC_TYPE_WORD",
+            "DYNAMIC_TYPE_ARTICLE",
+        ):
             # 图文动态
             opus = item["modules"]["module_dynamic"]["major"]["opus"]
             summary = opus["summary"]
