@@ -13,7 +13,7 @@ import uuid
 from io import BytesIO
 from typing import Union
 import certifi
-from PIL import Image
+from PIL import Image as PILImage
 
 
 async def create_render_data() -> dict:
@@ -162,7 +162,7 @@ async def bili_download_image_by_url(url: str, post_data: dict = None) -> str:
         raise e
 
 
-def bili_save_temp_img(img: Union[Image.Image, bytes]) -> str:
+def bili_save_temp_img(img: Union[PILImage.Image, bytes]) -> str:
     """
     取自astrbot/core/utils/io.py
     """
@@ -184,11 +184,11 @@ def bili_save_temp_img(img: Union[Image.Image, bytes]) -> str:
     timestamp = f"{int(time.time())}_{uuid.uuid4().hex[:8]}"
     png_path = os.path.join(temp_dir, f"{timestamp}.png")
 
-    if isinstance(img, Image.Image):
+    if isinstance(img, PILImage.Image):
         img.save(png_path, "PNG")
     elif isinstance(img, bytes):
         try:
-            with Image.open(BytesIO(img)) as image_obj:
+            with PILImage.open(BytesIO(img)) as image_obj:
                 image_obj.save(png_path, "PNG")
         except Exception as e:
             # 如果 Pillow 无法解析，则直接写入二进制数据
