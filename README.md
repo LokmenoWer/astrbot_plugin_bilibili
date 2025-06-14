@@ -44,7 +44,7 @@ plugin i https://github.com/Soulter/astrbot_plugin_bilibili
 | **订阅列表** | (无) | 显示当前会话的所有订阅。 | `bili_sub_list` |
 | **订阅删除** | `<B站UID>` | 删除当前会话中对指定 UP 主的订阅。 | `bili_sub_del` |
 | **全局删除** | `<SID>` | **[管理员]** 删除指定 SID 会话的所有订阅。使用 `/sid` 指令可查看会话 SID。 | `bili_global_del` |
-| **全局列表** | (无) | **[管理员]** 查看所有会话的订阅情况。 |
+| **全局列表** | (无) | **[管理员]** 查看所有会话的订阅情况。 | `bili_global_list` |
 
 #### 过滤器说明
 
@@ -79,6 +79,7 @@ plugin i https://github.com/Soulter/astrbot_plugin_bilibili
 
 - 添加指令别名
 - 支持专栏类型
+- ‼️astrbot_plugin_bilibili >= v1.4.10 需要 Astrbot >= 3.5.14
 
 ### v1.4.9
 

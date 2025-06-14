@@ -4,6 +4,7 @@ import json
 import asyncio
 from typing import List
 
+from astrbot.core.star.filter.command import GreedyStr
 from astrbot.api.all import *
 from astrbot.api import logger
 from astrbot.api.message_components import Image, Plain
@@ -94,13 +95,9 @@ class Main(Star):
             )
 
     @command("订阅动态", alias={"bili_sub"})
-    async def dynamic_sub(self, event: AstrMessageEvent):
-        input_text = event.message_str.strip()
-        if "订阅动态" in input_text:
-            input_text = input_text.replace("订阅动态", "", 1).strip()
-        args = input_text.split(" ")
-        uid = args[0]
-        args.pop(0)
+    async def dynamic_sub(self, event: AstrMessageEvent, input: GreedyStr):
+        args = input.split(" ")
+        uid = args.pop(0)
 
         filter_types: List[str] = []
         filter_regex: List[str] = []
