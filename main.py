@@ -1,3 +1,4 @@
+from ast import alias
 import re
 import json
 import asyncio
@@ -92,7 +93,7 @@ class Main(Star):
                 MessageChain().message(msg).message(text).url_image(info["pic"])
             )
 
-    @command("订阅动态")
+    @command("订阅动态",alias={"bili_sub"})
     async def dynamic_sub(self, event: AstrMessageEvent):
         input_text = event.message_str.strip()
         if "订阅动态" in input_text:
@@ -190,7 +191,7 @@ class Main(Star):
             ]
             return MessageEventResult(chain=chain, use_t2i_=False)
 
-    @command("订阅列表")
+    @command("订阅列表",alias={"bili_sub_list"})
     async def sub_list(self, event: AstrMessageEvent):
         """查看 bilibili 动态监控列表"""
         sub_user = event.unified_msg_origin
@@ -210,7 +211,7 @@ class Main(Star):
                     ret += f"{idx + 1}. {uid} - {name}\n"
             return MessageEventResult().message(ret)
 
-    @command("订阅删除")
+    @command("订阅删除",alias={"bili_sub_del"})
     async def sub_del(self, event: AstrMessageEvent, uid: str):
         """删除 bilibili 动态监控"""
         sub_user = event.unified_msg_origin
@@ -274,7 +275,7 @@ class Main(Star):
         return result
 
     @permission_type(PermissionType.ADMIN)
-    @command("全局删除")
+    @command("全局删除",alias={"bili_global_del"})
     async def global_sub_del(self, event: AstrMessageEvent, sid: str = None):
         """管理员指令。通过 SID 删除某一个群聊或者私聊的所有订阅。使用 /sid 查看当前会话的 SID。"""
         if not sid:
@@ -286,7 +287,7 @@ class Main(Star):
         return MessageEventResult().message(msg)
 
     @permission_type(PermissionType.ADMIN)
-    @command("全局列表")
+    @command("全局列表",alias={"bili_global_list"})
     async def global_list(self, event: AstrMessageEvent):
         """管理员指令。查看所有订阅者"""
         ret = "订阅会话列表：\n"
