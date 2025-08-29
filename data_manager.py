@@ -55,7 +55,7 @@ class DataManager:
         user_subs = self.get_subscriptions_by_user(sub_user)
         if user_subs:
             for sub in user_subs:
-                if sub.get("uid") == uid:
+                if sub.get("uid") == str(uid) or sub.get("uid") == uid:
                     return sub
         return None
 
