@@ -45,6 +45,7 @@ plugin i https://github.com/Soulter/astrbot_plugin_bilibili
 | **订阅删除** | `<B站UID>` | 删除当前会话中对指定 UP 主的订阅。 | `bili_sub_del` |
 | **全局删除** | `<SID>` | **[管理员]** 删除指定 SID 会话的所有订阅。使用 `/sid` 指令可查看会话 SID。 | `bili_global_del` |
 | **全局列表** | (无) | **[管理员]** 查看所有会话的订阅情况。 | `bili_global_list` |
+| **全局订阅** | `<SID> <B站UID> [过滤器...]` | **[管理员]** 为指定 SID 会话添加对 UP 主的订阅。 | `bili_global_sub` |
 
 #### 过滤器说明
 
@@ -54,6 +55,7 @@ plugin i https://github.com/Soulter/astrbot_plugin_bilibili
   - `lottery`：过滤掉互动抽奖动态。
   - `video`：过滤掉视频发布动态。
   - `article`：过滤掉专栏动态。
+  - `draw`：过滤掉图文动态。
   - **正则表达式**：任何不属于上述关键字的字符串都将被视为正则表达式，用于过滤动态文本内容。
 
 **示例**：
@@ -77,8 +79,9 @@ plugin i https://github.com/Soulter/astrbot_plugin_bilibili
 
 ### v1.4.10
 
-- 添加指令别名
-- 支持专栏类型
+- 新增图文动态(以draw标识)过滤
+- 添加指令别名。新增"全局订阅"指令
+- 支持展示专栏类型(仅展示部分内容)，并过滤充电项目
 - ‼️astrbot_plugin_bilibili >= v1.4.10 需要 Astrbot >= 3.5.14
 
 ### v1.4.9

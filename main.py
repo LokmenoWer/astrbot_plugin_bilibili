@@ -95,9 +95,8 @@ class Main(Star):
             )
 
     @command("订阅动态", alias={"bili_sub"})
-    async def dynamic_sub(self, event: AstrMessageEvent, input: GreedyStr):
+    async def dynamic_sub(self, event: AstrMessageEvent, uid: str, input: GreedyStr):
         args = input.split(" ")
-        uid = args.pop(0)
 
         filter_types: List[str] = []
         filter_regex: List[str] = []
@@ -129,9 +128,7 @@ class Main(Star):
         avatar = usr_info["face"]
 
         # 获取最新一条动态 (用于初始化 last_id)
-        dyn_id = ""
         try:
-            dyn = await self.bili_client.get_latest_dynamics(int(uid))
             # 构造新的订阅数据结构
             _sub_data = {
                 "uid": int(uid),
@@ -140,6 +137,7 @@ class Main(Star):
                 "filter_types": filter_types,
                 "filter_regex": filter_regex,
             }
+            dyn = await self.bili_client.get_latest_dynamics(int(uid))
             _, dyn_id = await self.dynamic_listener._parse_and_filter_dynamics(
                 dyn, _sub_data
             )
@@ -282,6 +280,44 @@ class Main(Star):
 
         msg = await self.data_manager.remove_all_for_user(sid)
         return MessageEventResult().message(msg)
+
+    @permission_type(PermissionType.ADMIN)
+    @command("全局订阅", alias={"bili_global_sub"})
+    async def global_sub_add(self, event: AstrMessageEvent, sid: str, uid: str, input: GreedyStr):
+        """管理员指令。通过 UID 添加某一个用户的所有订阅。"""
+        if not sid or not uid.isdigit():
+            return MessageEventResult().message("请提供正确的SID与UID。使用 /sid 指令查看当前会话的 SID")
+        args = input.split(" ")
+        filter_types: List[str] = []
+        filter_regex: List[str] = []
+        for arg in args:
+            if arg in VALID_FILTER_TYPES:
+                filter_types.append(arg)
+            else:
+                filter_regex.append(arg)
+
+        if await self.data_manager.update_subscription(sid, int(uid), filter_types, filter_regex):
+            return MessageEventResult().message("该动态已订阅，已更新过滤条件")
+        
+        usr_info, msg = await self.bili_client.get_user_info(int(uid))
+        if not usr_info:
+            return MessageEventResult().message(msg)
+        try:
+            _sub_data = {
+                "uid": uid,
+                "last": "",
+                "is_live": False,
+                "filter_types": filter_types,
+                "filter_regex": filter_regex
+            }
+            dyn = await self.bili_client.get_latest_dynamics(int(uid))
+            _, dyn_id = await self.dynamic_listener._parse_and_filter_dynamics(dyn, _sub_data)
+            _sub_data["last"] = dyn_id
+        except Exception as e:
+            logger.error(f"获取 {usr_info['name']} 初始动态失败: {e}")
+
+        await self.data_manager.add_subscription(sid, _sub_data)
+        return MessageEventResult().message(f"为添加{sid}订阅{uid}成功")
 
     @permission_type(PermissionType.ADMIN)
     @command("全局列表", alias={"bili_global_list"})

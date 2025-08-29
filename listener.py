@@ -204,7 +204,15 @@ class DynamicListener:
                 return render_data, dyn_id
             elif item.get("type") in ("DYNAMIC_TYPE_DRAW", "DYNAMIC_TYPE_WORD"):
                 # 图文类型过滤
-                opus = item["modules"]["module_dynamic"]["major"]["opus"]
+                if "draw" in filter_types:
+                    logger.info(f"图文类型在过滤列表 {filter_types} 中。")
+                    return None, dyn_id
+
+                major = (item.get("modules", {}).get("module_dynamic", {}).get("major", {}))
+                if major.get("type") == "MAJOR_TYPE_BLOCKED":
+                    logger.info(f"图文动态 {dyn_id} 为充电专属。")
+                    return None, dyn_id
+                opus = major["opus"]
                 summary_text = opus["summary"]["text"]
 
                 if (
@@ -236,6 +244,14 @@ class DynamicListener:
                 # 文章类型过滤
                 if "article" in filter_types:
                     logger.info(f"文章类型在过滤列表 {filter_types} 中。")
+                    return None, dyn_id
+                is_blocked = (
+                    item["modules"]["module_dynamic"]["major"]["type"]
+                    == "MAJOR_TYPE_BLOCKED"
+                )
+                major = (item.get("modules", {}).get("module_dynamic", {}).get("major", {}))
+                if major.get("type") == "MAJOR_TYPE_BLOCKED":
+                    logger.info(f"文章 {dyn_id} 为充电专属。")
                     return None, dyn_id
                 render_data = await self.renderer.build_render_data(item)
                 return render_data, dyn_id
