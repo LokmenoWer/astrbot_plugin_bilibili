@@ -208,7 +208,9 @@ class DynamicListener:
                     logger.info(f"图文类型在过滤列表 {filter_types} 中。")
                     return None, dyn_id
 
-                major = (item.get("modules", {}).get("module_dynamic", {}).get("major", {}))
+                major = (
+                    item.get("modules", {}).get("module_dynamic", {}).get("major", {})
+                )
                 if major.get("type") == "MAJOR_TYPE_BLOCKED":
                     logger.info(f"图文动态 {dyn_id} 为充电专属。")
                     return None, dyn_id
@@ -249,7 +251,9 @@ class DynamicListener:
                     item["modules"]["module_dynamic"]["major"]["type"]
                     == "MAJOR_TYPE_BLOCKED"
                 )
-                major = (item.get("modules", {}).get("module_dynamic", {}).get("major", {}))
+                major = (
+                    item.get("modules", {}).get("module_dynamic", {}).get("major", {})
+                )
                 if major.get("type") == "MAJOR_TYPE_BLOCKED":
                     logger.info(f"文章 {dyn_id} 为充电专属。")
                     return None, dyn_id

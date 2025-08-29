@@ -96,7 +96,7 @@ class Main(Star):
 
     @command("订阅动态", alias={"bili_sub"})
     async def dynamic_sub(self, event: AstrMessageEvent, uid: str, input: GreedyStr):
-        args = input.split(" ")
+        args = input.strip().split(" ") if input.strip() else []
 
         filter_types: List[str] = []
         filter_regex: List[str] = []
@@ -283,11 +283,15 @@ class Main(Star):
 
     @permission_type(PermissionType.ADMIN)
     @command("全局订阅", alias={"bili_global_sub"})
-    async def global_sub_add(self, event: AstrMessageEvent, sid: str, uid: str, input: GreedyStr):
+    async def global_sub_add(
+        self, event: AstrMessageEvent, sid: str, uid: str, input: GreedyStr
+    ):
         """管理员指令。通过 UID 添加某一个用户的所有订阅。"""
         if not sid or not uid.isdigit():
-            return MessageEventResult().message("请提供正确的SID与UID。使用 /sid 指令查看当前会话的 SID")
-        args = input.split(" ")
+            return MessageEventResult().message(
+                "请提供正确的SID与UID。使用 /sid 指令查看当前会话的 SID"
+            )
+        args = input.strip().split(" ") if input.strip() else []
         filter_types: List[str] = []
         filter_regex: List[str] = []
         for arg in args:
@@ -296,9 +300,11 @@ class Main(Star):
             else:
                 filter_regex.append(arg)
 
-        if await self.data_manager.update_subscription(sid, int(uid), filter_types, filter_regex):
+        if await self.data_manager.update_subscription(
+            sid, int(uid), filter_types, filter_regex
+        ):
             return MessageEventResult().message("该动态已订阅，已更新过滤条件")
-        
+
         usr_info, msg = await self.bili_client.get_user_info(int(uid))
         if not usr_info:
             return MessageEventResult().message(msg)
@@ -308,10 +314,12 @@ class Main(Star):
                 "last": "",
                 "is_live": False,
                 "filter_types": filter_types,
-                "filter_regex": filter_regex
+                "filter_regex": filter_regex,
             }
             dyn = await self.bili_client.get_latest_dynamics(int(uid))
-            _, dyn_id = await self.dynamic_listener._parse_and_filter_dynamics(dyn, _sub_data)
+            _, dyn_id = await self.dynamic_listener._parse_and_filter_dynamics(
+                dyn, _sub_data
+            )
             _sub_data["last"] = dyn_id
         except Exception as e:
             logger.error(f"获取 {usr_info['name']} 初始动态失败: {e}")
