@@ -75,6 +75,14 @@ plugin i https://github.com/Soulter/astrbot_plugin_bilibili
 1. [@Flartiny](https://github.com/Flartiny)
 2. [@Soulter](https://github.com/Soulter)
 
+## 常见问题
+
+1. 渲染图片失败 (尝试次数: 1): 500, message='Internal Server Error'  
+一般是公共接口不稳定性导致，详见[issue43](https://github.com/Soulter/astrbot_plugin_bilibili/issues/43)
+
+2. 错误代码-352  
+尝试[issue34](https://github.com/Soulter/astrbot_plugin_bilibili/issues/34)中方法
+
 ## 更新日志
 
 ### v1.4.10
