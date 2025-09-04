@@ -338,6 +338,9 @@ class Main(Star):
 
         for sub_user in all_subs:
             ret += f"- {sub_user}\n"
+            for sub in all_subs[sub_user]:
+                uid = sub.get("uid")
+                ret += f"  - {uid}\n"
         return MessageEventResult().message(ret)
 
     @event_message_type(EventMessageType.ALL)

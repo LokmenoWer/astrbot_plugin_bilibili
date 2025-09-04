@@ -2,7 +2,8 @@ import json
 import os
 from typing import Dict, List, Any, Optional
 from astrbot.api import logger
-from .constant import DATA_PATH, DEFAULT_CFG
+from .constant import DEFAULT_CFG, DATA_PATH
+from astrbot.api.star import StarTools
 
 
 class DataManager:
@@ -10,8 +11,18 @@ class DataManager:
     负责管理插件的订阅数据，包括加载、保存和修改。
     """
 
-    def __init__(self, path: str = DATA_PATH):
-        self.path = path
+    def __init__(self):
+        standard_data_path = os.path.join(
+            StarTools.get_data_dir(plugin_name="astrbot_plugin_bilibili"), "astrbot_plugin_bilibili.json"
+        )
+        if os.path.exists(DATA_PATH) and not os.path.exists(standard_data_path):
+            # 复制旧数据文件到标准路径
+            os.makedirs(os.path.dirname(standard_data_path), exist_ok=True)
+            with open(DATA_PATH, "r", encoding="utf-8-sig") as src:
+                with open(standard_data_path, "w", encoding="utf-8") as dst:
+                    dst.write(src.read())
+            logger.info(f"已将旧数据文件迁移到标准路径: {standard_data_path}")
+        self.path = standard_data_path
         self.data = self._load_data()
 
     def _load_data(self) -> Dict[str, Any]:
