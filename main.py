@@ -38,6 +38,7 @@ class Main(Star):
 
         self.interval_mins = float(self.cfg.get("interval_mins", 20))
         self.rai = self.cfg.get("rai", True)
+        self.node = self.cfg.get("node", False)
         self.enable_parse_miniapp = self.cfg.get("enable_parse_miniapp", True)
         self.t2i_url = self.cfg.get("bili_t2i", "")
 
@@ -51,6 +52,7 @@ class Main(Star):
             renderer=self.renderer,
             interval_mins=self.interval_mins,
             rai=self.rai,
+            node=self.node,
         )
 
         self.dynamic_listener_task = asyncio.create_task(self.dynamic_listener.start())
@@ -380,6 +382,17 @@ class Main(Star):
                         logger.error(f"Failed to decode JSON string: {json_string}")
                     except Exception as e:
                         logger.error(f"An error occurred during JSON processing: {e}")
+
+    @command("订阅测试",alias={"bili_sub_test"})
+    async def sub_test(self, event: AstrMessageEvent, uid: str):
+        """测试订阅功能。仅测试获取动态与渲染图片功能，不保存订阅信息。"""
+        sub_user = event.unified_msg_origin
+        dyn = await self.bili_client.get_latest_dynamics(int(uid))
+        if dyn:
+            render_data, _ = await self.dynamic_listener._parse_and_filter_dynamics(
+                dyn, {"uid": uid, "filter_types": [], "filter_regex": []}
+            )
+            await self.dynamic_listener._handle_new_dynamic(sub_user, render_data)
 
     async def terminate(self):
         if self.dynamic_listener_task and not self.dynamic_listener_task.done():

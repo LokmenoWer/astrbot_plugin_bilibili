@@ -56,6 +56,7 @@ plugin i https://github.com/Soulter/astrbot_plugin_bilibili
   - `video`：过滤掉视频发布动态。
   - `article`：过滤掉专栏动态。
   - `draw`：过滤掉图文动态。
+  - `live`：过滤掉直播动态。
   - **正则表达式**：任何不属于上述关键字的字符串都将被视为正则表达式，用于过滤动态文本内容。
 
 **示例**：
