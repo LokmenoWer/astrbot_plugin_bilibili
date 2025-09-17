@@ -38,6 +38,7 @@ class Main(Star):
 
         self.interval_mins = float(self.cfg.get("interval_mins", 20))
         self.rai = self.cfg.get("rai", True)
+        self.node = self.cfg.get("node", False)
         self.enable_parse_miniapp = self.cfg.get("enable_parse_miniapp", True)
         self.t2i_url = self.cfg.get("bili_t2i", "")
 
@@ -51,6 +52,7 @@ class Main(Star):
             renderer=self.renderer,
             interval_mins=self.interval_mins,
             rai=self.rai,
+            node=self.node,
         )
 
         self.dynamic_listener_task = asyncio.create_task(self.dynamic_listener.start())

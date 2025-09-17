@@ -3,7 +3,7 @@ import asyncio
 import traceback
 from typing import Dict, Any, Tuple
 from astrbot.api import logger
-from astrbot.api.message_components import Image, Plain
+from astrbot.api.message_components import Image, Plain, Node
 from astrbot.api.event import MessageEventResult, MessageChain
 from astrbot.api.all import *
 from .data_manager import DataManager
@@ -26,6 +26,7 @@ class DynamicListener:
         renderer: Renderer,
         interval_mins: float,
         rai: bool,
+        node: bool,
     ):
         self.context = context
         self.data_manager = data_manager
@@ -33,6 +34,7 @@ class DynamicListener:
         self.renderer = renderer
         self.interval_mins = interval_mins
         self.rai = rai  # 非图文动态也可能需要这个配置
+        self.node = node
 
     async def start(self):
         """启动后台监听循环。"""
@@ -69,9 +71,38 @@ class DynamicListener:
                 await self.data_manager.update_last_dynamic_id(sub_user, uid, dyn_id)
 
         # 检查直播状态
+        if "live" in sub_data.get("filter_types", []):
+            return
         lives = await self.bili_client.get_live_info(uid)
         if lives:
             await self._handle_live_status(sub_user, sub_data, lives)
+
+    def _compose_plain_dynamic(self, render_data: Dict[str, Any], render_fail: bool = False):
+        """转换为纯文本消息链。"""
+        name = render_data.get("name")
+        summary = render_data.get("summary", "")
+        prefix_fail = [Plain("渲染图片失败了 (´;ω;`)\n")] if render_fail else []
+        ls = [
+            *prefix_fail,
+            Plain(f"📣 UP 主 「{name}」 发布了新图文动态:\n"),
+            Plain(summary),
+        ]
+        for pic in render_data.get("image_urls", []):
+            ls.append(Image.fromURL(pic))
+        return ls
+    
+    async def _send_plain_dynamic(self, sub_user: str, chain_parts: list, render_fail: bool = False):
+        if self.node or render_fail:
+            qqNode = Node(
+                uin=0,
+                name="AstrBot",
+                content=chain_parts,
+            )
+            await self.context.send_message(chain=[qqNode])
+        else:
+            await self.context.send_message(
+                sub_user, MessageEventResult(chain=chain_parts).use_t2i(False)
+            )
 
     async def _handle_new_dynamic(self, sub_user: str, render_data: Dict[str, Any]):
         """处理并发送新的动态通知。"""
@@ -80,16 +111,8 @@ class DynamicListener:
             "DYNAMIC_TYPE_DRAW",
             "DYNAMIC_TYPE_WORD",
         ):
-            name = render_data.get("name")
-            ls = [
-                Plain(f"📣 UP 主 「{name}」 发布了新图文动态:\n"),
-                Plain(render_data.get("summary")),
-            ]
-            for pic in render_data.get("image_urls", []):
-                ls.append(Image.fromURL(pic))
-            await self.context.send_message(
-                sub_user, MessageEventResult(chain=ls).use_t2i(False)
-            )
+            ls = self._compose_plain_dynamic(render_data)
+            await self._send_plain_dynamic(sub_user, ls)
         # 默认渲染成图片
         else:
             img_path = await self.renderer.render_dynamic(render_data)
@@ -101,8 +124,9 @@ class DynamicListener:
                     .message(render_data.get("url", "")),
                 )
             else:
-                logger.error("渲染图片失败，无法发送动态。")
-                # 可以在此处增加文字版推送作为后备方案
+                logger.error("渲染图片失败，尝试发送纯文本消息")
+                ls = self._compose_plain_dynamic(render_data, render_fail=True)
+                await self._send_plain_dynamic(sub_user, ls, render_fail=True)
 
     async def _handle_live_status(self, sub_user: str, sub_data: Dict, live_info: Dict):
         """处理并发送直播状态变更通知。"""
