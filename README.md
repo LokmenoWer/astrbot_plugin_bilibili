@@ -46,6 +46,7 @@ plugin i https://github.com/Soulter/astrbot_plugin_bilibili
 | **全局删除** | `<SID>` | **[管理员]** 删除指定 SID 会话的所有订阅。使用 `/sid` 指令可查看会话 SID。 | `bili_global_del` |
 | **全局列表** | (无) | **[管理员]** 查看所有会话的订阅情况。 | `bili_global_list` |
 | **全局订阅** | `<SID> <B站UID> [过滤器...]` | **[管理员]** 为指定 SID 会话添加对 UP 主的订阅。 | `bili_global_sub` |
+| **订阅测试** | `<B站UID>` | 测试订阅功能。仅测试获取动态与渲染图片功能，不保存订阅信息。 | `bili_sub_test` |
 
 #### 过滤器说明
 
@@ -89,6 +90,12 @@ UMO结构发生了变化，已为"全局列表"指令添加了具体订阅信息
 简便的方法是进入data/plugin_data/astrbot_plugin_bilibili文件夹修改UMO的第一部分（使用"/sid"指令了解区别）。
 
 ## 更新日志
+
+### v1.4.12
+
+- 支持直播动态(以live标识)过滤
+- 支持图文动态以转发消息形式推送，图片渲染失败时同理
+- 新增测试指令
 
 ### v1.4.11
 

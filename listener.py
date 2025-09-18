@@ -126,7 +126,7 @@ class DynamicListener:
                 url = render_data.get("url", "")
                 ls = [
                     Image.fromFileSystem(img_path),
-                    Plain(f"\n{url}"),
+                    Plain(f"{url}"),
                 ]
                 if self.node:
                     await self._send_dynamic(sub_user, ls, send_node=True)
