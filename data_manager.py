@@ -13,7 +13,8 @@ class DataManager:
 
     def __init__(self):
         standard_data_path = os.path.join(
-            StarTools.get_data_dir(plugin_name="astrbot_plugin_bilibili"), "astrbot_plugin_bilibili.json"
+            StarTools.get_data_dir(plugin_name="astrbot_plugin_bilibili"),
+            "astrbot_plugin_bilibili.json",
         )
         if os.path.exists(DATA_PATH) and not os.path.exists(standard_data_path):
             # 复制旧数据文件到标准路径

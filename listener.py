@@ -77,7 +77,9 @@ class DynamicListener:
         if lives:
             await self._handle_live_status(sub_user, sub_data, lives)
 
-    def _compose_plain_dynamic(self, render_data: Dict[str, Any], render_fail: bool = False):
+    def _compose_plain_dynamic(
+        self, render_data: Dict[str, Any], render_fail: bool = False
+    ):
         """转换为纯文本消息链。"""
         name = render_data.get("name")
         summary = render_data.get("summary", "")
@@ -90,15 +92,19 @@ class DynamicListener:
         for pic in render_data.get("image_urls", []):
             ls.append(Image.fromURL(pic))
         return ls
-    
-    async def _send_plain_dynamic(self, sub_user: str, chain_parts: list, render_fail: bool = False):
-        if self.node or render_fail:
+
+    async def _send_dynamic(
+        self, sub_user: str, chain_parts: list, send_node: bool = False
+    ):
+        if self.node or send_node:
             qqNode = Node(
                 uin=0,
                 name="AstrBot",
                 content=chain_parts,
             )
-            await self.context.send_message(chain=[qqNode])
+            await self.context.send_message(
+                sub_user, MessageEventResult(chain=[qqNode])
+            )
         else:
             await self.context.send_message(
                 sub_user, MessageEventResult(chain=chain_parts).use_t2i(False)
@@ -112,21 +118,26 @@ class DynamicListener:
             "DYNAMIC_TYPE_WORD",
         ):
             ls = self._compose_plain_dynamic(render_data)
-            await self._send_plain_dynamic(sub_user, ls)
+            await self._send_dynamic(sub_user, ls)
         # 默认渲染成图片
         else:
             img_path = await self.renderer.render_dynamic(render_data)
             if img_path:
-                await self.context.send_message(
-                    sub_user,
-                    MessageChain()
-                    .file_image(img_path)
-                    .message(render_data.get("url", "")),
-                )
+                url = render_data.get("url", "")
+                ls = [
+                    Image.fromFileSystem(img_path),
+                    Plain(f"\n{url}"),
+                ]
+                if self.node:
+                    await self._send_dynamic(sub_user, ls, send_node=True)
+                else:
+                    await self.context.send_message(
+                        sub_user, MessageEventResult(chain=ls).use_t2i(False)
+                    )
             else:
                 logger.error("渲染图片失败，尝试发送纯文本消息")
                 ls = self._compose_plain_dynamic(render_data, render_fail=True)
-                await self._send_plain_dynamic(sub_user, ls, render_fail=True)
+                await self._send_dynamic(sub_user, ls, send_node=True)
 
     async def _handle_live_status(self, sub_user: str, sub_data: Dict, live_info: Dict):
         """处理并发送直播状态变更通知。"""

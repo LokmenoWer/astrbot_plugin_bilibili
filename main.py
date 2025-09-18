@@ -383,14 +383,14 @@ class Main(Star):
                     except Exception as e:
                         logger.error(f"An error occurred during JSON processing: {e}")
 
-    @command("订阅测试",alias={"bili_sub_test"})
+    @command("订阅测试", alias={"bili_sub_test"})
     async def sub_test(self, event: AstrMessageEvent, uid: str):
         """测试订阅功能。仅测试获取动态与渲染图片功能，不保存订阅信息。"""
         sub_user = event.unified_msg_origin
         dyn = await self.bili_client.get_latest_dynamics(int(uid))
         if dyn:
             render_data, _ = await self.dynamic_listener._parse_and_filter_dynamics(
-                dyn, {"uid": uid, "filter_types": [], "filter_regex": []}
+                dyn, {"uid": uid, "filter_types": [], "filter_regex": [], "last": ""}
             )
             await self.dynamic_listener._handle_new_dynamic(sub_user, render_data)
 
