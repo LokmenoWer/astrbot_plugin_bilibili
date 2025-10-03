@@ -416,7 +416,7 @@ class Main(Star):
                     resp.raise_for_status()
                     raw = await resp.json(content_type=None)
         except Exception as e:
-            await MessageEventResult().message(
+            await event.send(
                 MessageChain().message(f"获取直播间信息失败: {e}")
             )
             return
@@ -449,13 +449,13 @@ class Main(Star):
             img_path = await self.renderer.render_dynamic(render_data)
             if img_path:
                 if live_status == 1:
-                    await MessageEventResult().message(
+                    await event.send(
                         MessageChain()
                         .file_image(img_path)
                         .message("点击链接空降直播间:" + render_data["url"])
                     )
                 else:
-                    await MessageEventResult().message(
+                    await event.send(
                         MessageChain().file_image(img_path)
                     )
             else:
@@ -465,7 +465,7 @@ class Main(Star):
                     chain = chain.url_image(cover_url)
                 if live_status == 1:
                     chain = chain.message("点击链接空降直播间:" + render_data["url"])
-                await MessageEventResult().message(chain)
+                await event.send(chain)
 
     async def terminate(self):
         if self.dynamic_listener_task and not self.dynamic_listener_task.done():
