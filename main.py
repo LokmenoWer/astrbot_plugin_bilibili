@@ -399,12 +399,22 @@ class Main(Star):
         """查看当前直播间状态(使用新版房间信息接口)"""
         url = "https://api.live.bilibili.com/room/v1/Room/get_info"
         params = {"room_id": 23353816}
+        cookie = self.cfg.get("bili_cookie", "")
+        if not cookie:
+            logger.warning("未配置 B 站 Cookie，可能出现访问频率或数据受限问题。")
 
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://live.bilibili.com/",
+        }
+        if cookie:
+            headers["Cookie"] = cookie
         try:
-            async with ClientSession() as session:
+            async with ClientSession(headers=headers) as session:
                 async with session.get(url, params=params, timeout=10) as resp:
                     resp.raise_for_status()
-                    raw = await resp.json()
+                    raw = await resp.json(content_type=None)
         except Exception as e:
             await MessageEventResult().message(
                 MessageChain().message(f"获取直播间信息失败: {e}")
@@ -456,7 +466,7 @@ class Main(Star):
                 if live_status == 1:
                     chain = chain.message("点击链接空降直播间:" + render_data["url"])
                 await MessageEventResult().message(chain)
-                
+
     async def terminate(self):
         if self.dynamic_listener_task and not self.dynamic_listener_task.done():
             self.dynamic_listener_task.cancel()

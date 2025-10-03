@@ -35,5 +35,11 @@
         "type": "string",
         "hint": "设置自部署t2i服务接口以获得有限的清晰度提升（可选）",
         "default": ""
+    },
+    "bili_cookie":{
+        "description": "bili_cookie",
+        "type": "string",
+        "hint": "B站Cookie",
+        "default": ""
     }
 }
