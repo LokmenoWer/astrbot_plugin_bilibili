@@ -394,7 +394,7 @@ class Main(Star):
             )
             await self.dynamic_listener._handle_new_dynamic(sub_user, render_data)
     @command("直播间状态", alias={"bili_live_status"})
-    async def sub_test(self, event: AstrMessageEvent):
+    async def bili_live_status(self, event: AstrMessageEvent):
         """查看当前直播间状态"""
         live_info = await self.bili_client.get_live_info(23353816)
         live_room = (
