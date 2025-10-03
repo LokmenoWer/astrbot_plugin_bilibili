@@ -421,8 +421,7 @@ class Main(Star):
             img_path = await self.renderer.render_dynamic(render_data)
             if img_path:
                 if live_room.get("liveStatus", ""):
-                    return MessageEventResult().message(
-                        MessageChain().file_image(img_path).message("点击链接空降直播间:" + render_data["url"])
+                    return MessageEventResult().message(MessageChain().file_image(img_path).message("点击链接空降直播间:" + render_data["url"]))
                 else:
                     return MessageEventResult().message(
                         MessageChain().file_image(img_path)
@@ -431,7 +430,7 @@ class Main(Star):
                 text = "\n".join(filter(None, render_data.get("text", "").split("\n")))
                 if live_room.get("liveStatus", ""):
                     return MessageEventResult().message(
-                        MessageChain().message(text).url_image(cover_url).message("点击链接空降直播间:" + render_data["url"])
+                        MessageChain().message(text).url_image(cover_url).message("点击链接空降直播间:" + render_data["url"]))
                 else:
                     return MessageEventResult().message(
                         MessageChain().message(text).url_image(cover_url)
