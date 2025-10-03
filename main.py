@@ -396,7 +396,7 @@ class Main(Star):
     @command("直播间状态", alias={"bili_live_status"})
     async def bili_live_status(self, event: AstrMessageEvent):
         """查看当前直播间状态"""
-        live_info = await self.bili_client.get_live_info(23353816)
+        live_info = await self.bili_client.get_live_info(30879313)
         live_room = (
             live_info.get("live_room", {}) or live_info.get("live_room:", {}) or {}
         )
