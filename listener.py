@@ -99,7 +99,7 @@ class DynamicListener:
         if self.node or send_node:
             qqNode = Node(
                 uin=0,
-                name="AstrBot",
+                name="直面泰山Bot",
                 content=chain_parts,
             )
             await self.context.send_message(
@@ -151,7 +151,7 @@ class DynamicListener:
         link = live_room.get("url", "Unknown")
 
         render_data = await create_render_data()
-        render_data["name"] = "AstrBot"
+        render_data["name"] = "直面泰山Bot"
         render_data["avatar"] = await image_to_base64(LOGO_PATH)
         render_data["title"] = live_name
         render_data["url"] = link

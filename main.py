@@ -74,7 +74,7 @@ class Main(Star):
         online = video_data["online"]
 
         render_data = await create_render_data()
-        render_data["name"] = "AstrBot"
+        render_data["name"] = "直面泰山Bot"
         render_data["avatar"] = await image_to_base64(LOGO_PATH)
         render_data["title"] = info["title"]
         render_data["text"] = (
@@ -157,7 +157,7 @@ class Main(Star):
             filter_desc += f"<br>过滤正则: {filter_regex}"
 
         render_data = await create_render_data()
-        render_data["name"] = "AstrBot"
+        render_data["name"] = "直面泰山Bot"
         render_data["avatar"] = await image_to_base64(LOGO_PATH)
         render_data["text"] = (
             f"📣 订阅成功！<br>"
@@ -393,6 +393,50 @@ class Main(Star):
                 dyn, {"uid": uid, "filter_types": [], "filter_regex": [], "last": ""}
             )
             await self.dynamic_listener._handle_new_dynamic(sub_user, render_data)
+    @command("直播间状态", alias={"bili_live_status"})
+    async def sub_test(self, event: AstrMessageEvent):
+        """查看当前直播间状态"""
+        live_info = await self.bili_client.get_live_info(23353816)
+        live_room = (
+            live_info.get("live_room", {}) or live_info.get("live_room:", {}) or {}
+        )
+        live_name = live_room.get("title", "Unknown")
+        user_name = live_info["name"]
+        cover_url = live_room.get("cover", "")
+        link = live_room.get("url", "Unknown")
+
+        render_data = await create_render_data()
+        render_data["name"] = "直面泰山Bot"
+        render_data["avatar"] = await image_to_base64(LOGO_PATH)
+        render_data["title"] = live_name
+        render_data["url"] = link
+        render_data["image_urls"] = [cover_url]
+
+        if live_room.get("liveStatus", ""):
+            render_data["text"] = f"📣 您最爱的UP 「{user_name}」 正在直播！"
+        if not live_room.get("liveStatus", ""):
+            render_data["text"] = f"📣 您最爱的UP 「{user_name}」 还没开播哦！"
+        if render_data["text"]:
+            render_data["qrcode"] = await create_qrcode(link)
+            img_path = await self.renderer.render_dynamic(render_data)
+            if img_path:
+                if live_room.get("liveStatus", ""):
+                    return MessageEventResult().message(
+                        MessageChain().file_image(img_path).message("点击链接空降直播间:" + render_data["url"])
+                else:
+                    return MessageEventResult().message(
+                        MessageChain().file_image(img_path)
+                )
+            else:
+                text = "\n".join(filter(None, render_data.get("text", "").split("\n")))
+                if live_room.get("liveStatus", ""):
+                    return MessageEventResult().message(
+                        MessageChain().message(text).url_image(cover_url).message("点击链接空降直播间:" + render_data["url"])
+                else:
+                    return MessageEventResult().message(
+                        MessageChain().message(text).url_image(cover_url)
+                )
+
 
     async def terminate(self):
         if self.dynamic_listener_task and not self.dynamic_listener_task.done():
